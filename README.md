@@ -15,7 +15,7 @@
 |---|---|
 | 后端 | Python 3.14 + FastAPI + SQLAlchemy 2.0 (async) |
 | 前端 | Next.js 15 (App Router) + React 19 + TypeScript + Tailwind CSS 4 |
-| 数据库 | MySQL 8.0 (aiomysql) |
+| 数据库 | SQLite (aiosqlite)，可选切换 MySQL 8.0 (aiomysql) |
 | AI | DeepSeek API (兼容 OpenAI SDK 调用) |
 
 ## 项目结构
@@ -55,7 +55,7 @@
 
 - Python 3.14+
 - Node.js 20+
-- MySQL 8.0（本地运行）
+- 零配置即可运行（默认 SQLite，无需安装数据库）
 
 ### 2. 后端
 
@@ -71,7 +71,7 @@ pip install -r requirements.txt
 
 # 配置环境变量（从项目根目录拷贝）
 cp ../.env.example ../.env
-# 编辑 .env，填入 DeepSeek API Key 和本地 MySQL 连接信息
+# 开发默认使用 SQLite，无需改数据库。填入 DeepSeek API Key 即可
 
 # 启动
 uvicorn backend.app.main:app --reload --port 8000
@@ -92,7 +92,7 @@ npm run dev
 
 | 变量 | 说明 | 示例 |
 |---|---|---|
-| `DATABASE_URL` | 数据库连接串 | `mysql+aiomysql://root:password@localhost:3306/trip-agent` |
+| `DATABASE_URL` | 数据库连接串 | `sqlite+aiosqlite:///./trip_agent.db` |
 | `SECRET_KEY` | JWT 签名密钥 | 随机字符串 |
 | `DEEPSEEK_API_KEY` | DeepSeek API Key | `sk-xxx` |
 | `DEEPSEEK_BASE_URL` | API 地址 | `https://api.deepseek.com` |
