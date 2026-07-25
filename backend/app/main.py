@@ -1,0 +1,42 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from backend.app.db.session import engine
+from backend.app.models.base import Base
+from backend.app.routers import auth, chat, trips
+
+# 必须在 create_all 之前导入所有 model，否则它们不会注册到 Base.metadata
+import backend.app.models.user  # noqa: F401
+import backend.app.models.trip  # noqa: F401
+import backend.app.models.message  # noqa: F401
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动时根据 ORM 定义自动建表"""
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield
+
+
+app = FastAPI(title="旅游助手 Agent API", version="0.1.0", lifespan=lifespan)
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    # 不设 allow_credentials，因为用 Authorization header 传 token，不需要 cookie
+)
+
+app.include_router(auth.router)
+app.include_router(chat.router)
+app.include_router(trips.router)
+
+
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
