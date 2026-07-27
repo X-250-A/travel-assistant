@@ -21,5 +21,9 @@ node_modules/
 .DS_Store
 Thumbs.db
 
+# Diary
+项目完善历程/
+项目开发历程/
+
 # Database
 *.db
