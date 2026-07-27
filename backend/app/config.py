@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     DEEPSEEK_BASE_URL: str = "change-me-to-a-deepseeek-base-url"
     DEEPSEEK_MODEL: str = "deepseek-v4-flash"
 
+    # weather_tool
+    WEATHER_API_KEY: str = "change-me-to-a-weather-api-key"
+
     model_config = {
         "env_file": str(Path(__file__).parent.parent.parent / ".env"),
         "env_file_encoding": "utf-8"

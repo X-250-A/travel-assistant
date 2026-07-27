@@ -8,6 +8,15 @@ from backend.app.services.llm_client import LLMClient
 from backend.app.crud.trip import find_trip_by_id, update_trip
 import json
 import re
+from backend.app.tools.weather import WEATHER_TOOL, get_weather
+
+
+TOOL_MAP = {
+    "get_weather": get_weather
+}
+
+
+
 
 
 class TripPlannerAgent:
@@ -147,7 +156,7 @@ class TripPlannerAgent:
 
         return "unclear"
 
-    async def _generate_plan(self, conversation):
+    async def _generate_plan(self, conversation, tool_defs = None):
         """构造 Prompt 调用 LLM 生成行程"""
         context = await conversation.get_context(max_tokens=30000)
 
@@ -165,8 +174,58 @@ class TripPlannerAgent:
             user_input=user_input,
         )
 
-        async for chunk in self.llm_client.chat_stream(messages):
-            yield chunk
+        if tool_defs is None:
+            tool_defs = [WEATHER_TOOL]
+
+        # 非流式调用LLM
+        message = await self.llm_client.chat(messages, tool_defs)
+        if not message.tool_calls:
+            # 没有工具调用的需求，则yield流式输出
+            async for chunk in self.llm_client.chat_stream(messages):
+                yield chunk
+            return
+
+        while True:
+
+            messages.append({
+                "role": "assistant",
+                "content": message.content,  # 可能为 None
+                "tool_calls": message.tool_calls  # tool_calls 列表
+            })
+
+
+            for tool_call in message.tool_calls:
+                fn_name = tool_call.function.name
+                fn_args = json.loads(tool_call.function.arguments)
+
+                fn = TOOL_MAP.get(fn_name)
+                if fn is None:
+                    result = f"未知工具：{fn_name}"
+                else:
+                    result = await fn(**fn_args)
+                    
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id" : tool_call.id,
+                    "content" : result,
+                })
+
+            message = await self.llm_client.chat(messages, tool_defs)
+
+            if not message.tool_calls:
+                async for chunk in self.llm_client.chat_stream(messages):
+                    yield chunk
+                return
+
+
+
+
+
+
+
+
+
+
 
     async def _apply_feedback(self, feedback: str, current_plan: dict, conversation):
         """根据用户反馈调整现有行程"""

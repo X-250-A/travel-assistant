@@ -23,13 +23,19 @@ class LLMClient:
         )
         self.model = settings.DEEPSEEK_MODEL
 
-    async def chat(self, messages: list[dict]) -> str:
+    async def chat(self, messages: list[dict], tools : list[dict]):
+        kwargs = {
+            "model": settings.DEEPSEEK_MODEL,
+            "messages": messages,
+        }
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = "auto"
+
         """非流式调用，返回完整响应文本"""
-        responses = await self.client.chat.completions.create(
-            model=self.model,  # type: ignore
-            messages=messages,  # type: ignore
-        )
-        return responses.choices[0].message.content or ""
+        responses = await self.client.chat.completions.create(**kwargs)
+
+        return responses.choices[0].message
 
     async def chat_stream(self, messages: list[dict]):
         """流式调用，返回 AsyncGenerator[str]"""
