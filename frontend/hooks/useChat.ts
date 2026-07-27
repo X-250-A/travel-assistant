@@ -10,6 +10,8 @@ export function useChat() {
     const [sending, setSending] = useState(false);
     /** 当前已加载的 tripId，避免同一行程重复加载 */
     const loadedTripIdRef = useRef<number | null>(null);
+    /** streaming 内容的同步副本，避免在 setStreaming updater 里嵌套 setMessages */
+    const streamingBufRef = useRef("");
 
     /** 加载历史消息 */
     const loadMessages = useCallback(async (tripId: number) => {
@@ -29,6 +31,7 @@ export function useChat() {
         setStreaming("");
         setSending(false);
         loadedTripIdRef.current = null;
+        streamingBufRef.current = "";
     }, []);
 
     const sendMessage = async (text: string, tripId: number | null): Promise<number | null> => {
@@ -44,21 +47,25 @@ export function useChat() {
         const finalTripId = await new Promise<number | null>((resolve) => {
             apiSendMessage(
                 text, tripId, {
-                    onToken: (chunk) => setStreaming(prev => prev + chunk),
+                    onToken: (chunk) => {
+                        streamingBufRef.current += chunk;
+                        setStreaming(streamingBufRef.current);
+                    },
                     onDone: (newTripId) => {
-                        setStreaming(prev => {
-                            if(prev.trim()){
-                                const aiMsg : Message = {
-                                    id : Date.now(),
-                                    trip_id : newTripId ?? tripId ?? 0,
-                                    role : "assistant",
-                                    content : prev,
-                                    created_at : new Date().toISOString()
-                                };
-                                setMessages(prevMsgs => [...prevMsgs, aiMsg]);
-                            }
-                            return "";
-                        })
+                        const finalText = streamingBufRef.current;
+                        streamingBufRef.current = "";
+                        setStreaming("");
+
+                        if (finalText.trim()) {
+                            const aiMsg: Message = {
+                                id: Date.now(),
+                                trip_id: newTripId ?? tripId ?? 0,
+                                role: "assistant",
+                                content: finalText,
+                                created_at: new Date().toISOString(),
+                            };
+                            setMessages(prevMsgs => [...prevMsgs, aiMsg]);
+                        }
                         setSending(false);
                         resolve(newTripId ?? null);
                     },

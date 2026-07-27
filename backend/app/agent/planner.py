@@ -50,29 +50,81 @@ class TripPlannerAgent:
             full_text += chunk
             yield {"type": "token", "content": chunk}
 
-        # 4. 尝试解析 JSON 并保存行程
-        try:
-            plan_data = json.loads(full_text)
-            await update_trip(conversation.db, conversation.trip_id, plan_data=plan_data)
-        except (json.JSONDecodeError, TypeError):
-            # LLM 可能在 JSON 前后加了文字，尝试用正则提取
-            match = re.search(r'\{.*}', full_text, re.DOTALL)
-            if match:
-                try:
-                    plan_data = json.loads(match.group())
-                    await update_trip(conversation.db, conversation.trip_id, plan_data=plan_data)
-                except Exception:
-                    print(f"[WARN] JSON 解析失败，原始输出前200字: {full_text[:200]}")
-            else:
-                print(f"[WARN] 未在回复中找到 JSON，原始输出前200字: {full_text[:200]}")
-        except Exception as e:
-            print(f"[ERROR] 保存行程失败: {e}")
+        # 4. 从回复中分离自然语言文本与结构化 JSON
+        display_text, plan_data = self._extract_plan_json(full_text)
 
-        # 5. 保存 AI 回复
-        await conversation.add_message("assistant", full_text)
+        # 5. 保存解析出的行程数据
+        if plan_data is not None:
+            try:
+                await update_trip(conversation.db, conversation.trip_id, plan_data=plan_data)
+            except Exception as e:
+                print(f"[ERROR] 保存行程失败: {e}")
 
-        # 6. 结束 — 把 trip_id 带回前端，让前端知道"刚聊的是哪个行程"
+        # 6. 保存 AI 回复（自然语言部分，不含 JSON 代码块）
+        await conversation.add_message("assistant", display_text)
+
+        # 7. 结束 — 把 trip_id 带回前端，让前端知道"刚聊的是哪个行程"
         yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
+
+    def _extract_plan_json(self, full_text: str) -> tuple[str, dict | None]:
+        """从 LLM 回复中分离自然语言文本与 ```json 代码块。
+
+        返回 (display_text, plan_data)。display_text 是展示给用户的自然语言，
+        plan_data 是解析后的行程 JSON；如果未找到 JSON 块，则 plan_data 为 None，
+        display_text 为原始文本。
+        """
+        plan_data = None
+        display_text = full_text
+
+        # 优先：按 ```json / ``` 标记拆分
+        parts = full_text.split("```json", 1)
+        if len(parts) == 2:
+            display_text = parts[0].strip()
+            json_part = parts[1]
+            end = json_part.rfind("```")
+            if end != -1:
+                json_str = json_part[:end].strip()
+            else:
+                json_str = json_part.strip()
+
+            if json_str:
+                try:
+                    plan_data = json.loads(json_str)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            if plan_data is not None:
+                return display_text, plan_data
+
+        # 回退 1：尝试按普通的 ``` 标记提取 JSON
+        triple_parts = full_text.split("```", 1)
+        if len(triple_parts) == 2:
+            # 第一个 ``` 之后、最后一个 ``` 之前的内容
+            rem = triple_parts[1]
+            end2 = rem.rfind("```")
+            candidate = (rem[:end2] if end2 != -1 else rem).strip()
+            # 去掉可能的前导 "json" 标记
+            if candidate.lower().startswith("json"):
+                candidate = candidate[4:].strip()
+            try:
+                plan_data = json.loads(candidate)
+                display_text = full_text.split("```")[0].strip()
+                return display_text, plan_data
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # 回退 2：兼容没有 ```json 标记的纯 JSON 输出
+        match = re.search(r'\{.*}', full_text, re.DOTALL)
+        if match:
+            try:
+                plan_data = json.loads(match.group())
+                display_text = full_text.replace(match.group(), "").strip()
+                return display_text, plan_data
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        print(f"[WARN] 未在回复中找到有效 JSON，原始输出前200字: {full_text[:200]}")
+        return full_text, None
 
     def _classify_intent(self, user_input: str):
         """分类用户意图：new_trip / modify_trip / ask_question / unclear"""
@@ -124,7 +176,7 @@ class TripPlannerAgent:
 用户要求：{feedback}
 
 请在现有行程基础上做局部调整。只修改用户提到的部分，其余保持不变。
-直接返回修改后的完整行程 JSON。"""
+先用自然语言说明你做了哪些调整，然后在回复末尾用 ```json 代码块返回修改后的完整行程 JSON。"""
         # 保留原始 system prompt 的角色定义，再追加修改指令
         messages = [
             {"role": "system", "content": self.prompt_builder.system_prompt},
