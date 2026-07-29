@@ -6,14 +6,11 @@ TripPlannerAgent: 行程规划 Agent 核心
 from backend.app.services.prompt_builder import PromptBuilder
 from backend.app.services.llm_client import LLMClient
 from backend.app.crud.trip import find_trip_by_id, update_trip
+from backend.app.tools import ALL_TOOLS, get_tool_schema, execute_tool
 import json
 import re
-from backend.app.tools.weather import WEATHER_TOOL, get_weather
 from backend.app.config import settings
 
-TOOL_MAP = {
-    "get_weather": get_weather
-}
 
 MAX_TOOL_ROUND = 10
 
@@ -84,7 +81,6 @@ class TripPlannerAgent:
         display_text 为原始文本。
         """
         plan_data = None
-        display_text = full_text
 
         # 优先：按 ```json / ``` 标记拆分
         parts = full_text.split("```json", 1)
@@ -226,7 +222,7 @@ class TripPlannerAgent:
         )
 
         if tool_defs is None:
-            tool_defs = [WEATHER_TOOL]
+            tool_defs = get_tool_schema()
 
         # 非流式调用LLM
         message = await self.llm_client.chat(messages, tool_defs)
@@ -248,12 +244,7 @@ class TripPlannerAgent:
             for tool_call in message.tool_calls:
                 fn_name = tool_call.function.name
                 fn_args = json.loads(tool_call.function.arguments)
-
-                fn = TOOL_MAP.get(fn_name)
-                if fn is None:
-                    result = f"未知工具：{fn_name}"
-                else:
-                    result = await fn(**fn_args)
+                result = await execute_tool(fn_name, **fn_args)
                     
                 messages.append({
                     "role": "tool",

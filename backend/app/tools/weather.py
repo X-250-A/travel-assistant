@@ -1,28 +1,19 @@
 import httpx
 from backend.app.config import settings
+from backend.app.tools.base import Tool
 
 
-WEATHER_TOOL = {
-    "type" : "function",
-    "function" : {
-        "name" : "get_weather",
-        "description" : "查询目的地指定日期的天气预报，用于在行程规划中给出天气提醒和出行建议，如高温预警、降雨提醒、穿衣建议等",
-        "parameters" : {
-            "type" : "object",
-            "properties" : {
-                "city" : {
-                    "type" : "string",
-                    "description" : "城市名称，如北京，上海等"
-                },
-                "date" : {
-                    "type" : "string",
-                    "description" : "日期，格式为 YYYY-MM-DD，不传则查当天"
-                }
-            },
-            "required" : ["city"]
-        }
+WEATHER_PARAMETERS = {
+    "city": {
+        "type": "string",
+        "description": "城市名称，如北京，上海等"
+    },
+    "date": {
+        "type": "string",
+        "description": "日期，格式为 YYYY-MM-DD，不传则查当天"
     }
 }
+
 
 
 async def get_weather(city : str, date : str = None):
@@ -52,3 +43,10 @@ async def get_weather(city : str, date : str = None):
 
     return result
 
+weather_tool = Tool(
+    name = "get_weather",
+    description="查询目的地指定日期的天气预报，用于在行程规划中给出天气提醒和出行建议",
+    parameters=WEATHER_PARAMETERS,
+    required=["city"],
+    handler=get_weather
+)

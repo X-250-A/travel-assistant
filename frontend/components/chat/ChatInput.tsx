@@ -1,56 +1,57 @@
-import {useState} from "react";
-import type {KeyboardEvent} from "react";
+"use client";
+
+import { useState } from "react";
+import type { KeyboardEvent } from "react";
 
 interface Props {
     onSend: (text: string) => void;
     disabled: boolean;
 }
 
-
-// 输入框
-export default function ChatInput(
-    {onSend, disabled}: Props,
-) {
-    /* 状态管理 */
+export default function ChatInput({ onSend, disabled }: Props) {
     const [text, setText] = useState("");
 
-    /*负责触发发送事件*/
     const handleSend = () => {
         if (!text.trim() || disabled) return;
         onSend(text);
         setText("");
     };
 
-    /**/
     const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
         if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-            e.preventDefault()
+            e.preventDefault();
             handleSend();
         }
     };
 
     return (
-        <div className="flex gap-2">
-            <input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={handleKeyDown}
-                disabled={disabled}
-                placeholder="输入消息..."
-                className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm
-                           placeholder-gray-400 focus:border-blue-500 focus:outline-none
-                           disabled:bg-gray-100"
-            />
+        <div className="flex gap-2.5 items-center">
+            <div className="flex-1 relative">
+                <input
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    disabled={disabled}
+                    placeholder="说说你的旅行需求..."
+                    className="w-full rounded-2xl border border-stone-200 bg-stone-50 px-5 py-3 text-sm
+                               placeholder:text-stone-400 focus:border-orange-300 focus:bg-white focus:outline-none
+                               focus:ring-2 focus:ring-orange-100 transition-all duration-200
+                               disabled:opacity-50"
+                />
+            </div>
             <button
                 onClick={handleSend}
                 disabled={disabled || !text.trim()}
-                className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white
-                           hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed
-                           transition-colors"
+                className="shrink-0 w-11 h-11 rounded-2xl bg-gradient-to-br from-orange-500 to-rose-500
+                           text-white flex items-center justify-center shadow-lg shadow-orange-200
+                           hover:shadow-orange-300 hover:scale-105 active:scale-95
+                           disabled:opacity-40 disabled:shadow-none disabled:hover:scale-100
+                           transition-all duration-200"
             >
-                发送
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
             </button>
-        </div>);
-
-
+        </div>
+    );
 }

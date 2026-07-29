@@ -1,5 +1,4 @@
 "use client";
-// 认证 hook：登录/注册/登出/获取当前用户
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { getMe, login as apiLogin, register as apiRegister } from "@/lib/api";
@@ -15,19 +14,23 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-/** Provider：包裹整个 app，让所有组件共享同一个 user 状态 */
+function hasToken(): boolean {
+    if (typeof window === "undefined") return false;
+    return !!localStorage.getItem("token");
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        const token = localStorage.getItem("token");
-        if (!token) {
+        if (!hasToken()) {
             setLoading(false);
             return;
         }
         getMe()
             .then(setUser)
+            .catch(() => localStorage.removeItem("token"))
             .finally(() => setLoading(false));
     }, []);
 
@@ -58,7 +61,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
 }
 
-/** 在任意组件中获取认证状态 */
 export function useAuth(): AuthContextValue {
     const ctx = useContext(AuthContext);
     if (!ctx) throw new Error("useAuth must be used within <AuthProvider>");
