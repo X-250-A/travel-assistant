@@ -4,7 +4,8 @@ Trip CRUD 操作
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from backend.app.models.trip import Trip
-
+from backend.app.models.message import Message
+from sqlalchemy import delete as sa_delete
 
 # 创建行程
 async def create_trip(db: AsyncSession, user_id: int, title: str = "", status: str = "draft"):
@@ -68,8 +69,6 @@ async def delete_trip(db: AsyncSession, trip_id: int):
     trip = await find_trip_by_id(db, trip_id)
     if trip is None:
         return None
-    from backend.app.models.message import Message
-    from sqlalchemy import delete as sa_delete
     await db.execute(sa_delete(Message).where(Message.trip_id == trip_id))
     await db.delete(trip)
     await db.commit()

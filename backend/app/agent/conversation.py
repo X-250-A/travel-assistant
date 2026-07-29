@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.crud.trip import create_trip
 from backend.app.crud.message import save_message
 from backend.app.crud.message import get_all_trip_messages
+from collections.abc import Callable
 
 
 class ConversationState(StrEnum):
@@ -43,7 +44,7 @@ class ConversationManager:
         self.history_cache.append({"role": role, "content": content})
         return message
 
-    async def get_context(self, max_tokens: int):
+    async def get_context(self, max_tokens: int, token_counter : Callable[[str], int]):
         """返回拼接后的上下文字符串，自动裁剪到 max_tokens 以内"""
         db_messages = await get_all_trip_messages(self.db, self.trip_id)
         all_history = [
@@ -53,7 +54,7 @@ class ConversationManager:
         result = []
         current_token = 0
         for msg in reversed(all_history):
-            message_tokens = len(msg["content"]) // 2
+            message_tokens = token_counter(msg["content"])
             if current_token + message_tokens > max_tokens:
                 break
             result.insert(0, msg)

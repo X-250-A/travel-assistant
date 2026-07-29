@@ -43,3 +43,4 @@ async def get_all_trip_messages(db: AsyncSession, trip_id: int):
     return result.scalars().all()
 
 
+

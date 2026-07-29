@@ -9,14 +9,13 @@ from backend.app.crud.trip import find_trip_by_id, update_trip
 import json
 import re
 from backend.app.tools.weather import WEATHER_TOOL, get_weather
-
+from backend.app.config import settings
 
 TOOL_MAP = {
     "get_weather": get_weather
 }
 
-
-
+MAX_TOOL_ROUND = 10
 
 
 class TripPlannerAgent:
@@ -31,7 +30,7 @@ class TripPlannerAgent:
         await conversation.add_message("user", user_input)
 
         # 2. 意图判断及分支选择
-        intent = self._classify_intent(user_input)
+        intent = await self.llm_classify_intent(user_input, conversation)
 
         if intent == "new_trip":
             stream = self._generate_plan(conversation)
@@ -47,7 +46,9 @@ class TripPlannerAgent:
             else:
                 stream = self._apply_feedback(user_input, trip.plan_data, conversation)
         elif intent == "ask_question":
-            stream = self._generate_plan(conversation)
+            async for chunk in self.gossip(conversation):
+                yield chunk
+            return
         else:
             yield {"type": "token", "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"}
             yield {"type": "done", "data": {}}
@@ -135,8 +136,58 @@ class TripPlannerAgent:
         print(f"[WARN] 未在回复中找到有效 JSON，原始输出前200字: {full_text[:200]}")
         return full_text, None
 
-    def _classify_intent(self, user_input: str):
-        """分类用户意图：new_trip / modify_trip / ask_question / unclear"""
+    async def llm_classify_intent(self, user_input: str, conversation):
+        """LLM轻量意图识别"""
+        intent_classifier_prompt = self.prompt_builder.build_intent_classifier_prompt()
+
+        # 构建 messages
+        message = [{
+            "role" : "system",
+            "content" : intent_classifier_prompt
+        }]
+
+        # 检查对话历史
+        context_hint = ""
+        if conversation.trip_id != 0:
+            context_hint = (
+                f"当前对话有一个已存在的行程（ID={conversation.trip_id}），"
+                f"状态为 {conversation.state.value}。"
+                f"如果用户提到修改、调整、更换等，应归类为 modify_trip。"
+            )
+
+        # 将上下文历史加入 messages
+        if context_hint != "":
+            message.append({
+                "role" : "system",
+                "content" : context_hint
+            })
+        message.append({
+            "role" : "user",
+            "content" : user_input
+        })
+
+        try:
+            resp = await self.llm_client.client.chat.completions.create(
+                model=settings.DEEPSEEK_MODEL,
+                messages=message,
+                stream=False,
+                timeout=settings.LLM_REQUEST_TIMEOUT,
+                temperature=0,
+                response_format={"type" : "json_object"}
+            )
+            result = json.loads(resp.choices[0].message.content)
+            intent = result.get("intent", "unclear")
+            if intent not in ("new_trip", "modify_trip", "ask_question", "unclear"):
+                intent = "unclear"
+            return intent
+        except Exception as e:
+            print(f"[WARN] LLM 意图分类失败，回退关键词: {e}")
+            # 4. fallback 到关键词匹配
+            return self._keyword_classify(user_input)
+
+
+    def _keyword_classify(self, user_input: str):
+        """老方法：关键词匹配"""
         text = user_input.strip()
 
         # 修改意图的关键词
@@ -158,7 +209,7 @@ class TripPlannerAgent:
 
     async def _generate_plan(self, conversation, tool_defs = None):
         """构造 Prompt 调用 LLM 生成行程"""
-        context = await conversation.get_context(max_tokens=30000)
+        context = await conversation.get_context(max_tokens=30000, token_counter=self.llm_client.count_tokens)
 
         if not context:
             yield "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"
@@ -184,9 +235,9 @@ class TripPlannerAgent:
             async for chunk in self.llm_client.chat_stream(messages):
                 yield chunk
             return
-
-        while True:
-
+        tool_round = 0
+        while tool_round < MAX_TOOL_ROUND:
+            tool_round += 1
             messages.append({
                 "role": "assistant",
                 "content": message.content,  # 可能为 None
@@ -217,15 +268,12 @@ class TripPlannerAgent:
                     yield chunk
                 return
 
-
-
-
-
-
-
-
-
-
+        # 调用上限后的兜底处理
+        # ← 走到这里说明 10 轮工具调用后 LLM 还在要工具
+        print(f"[WARN] 工具调用超过 {MAX_TOOL_ROUND} 轮，强制结束")
+        # 兜底：把当前上下文流式输出
+        async for chunk in self.llm_client.chat_stream(messages):
+            yield chunk
 
     async def _apply_feedback(self, feedback: str, current_plan: dict, conversation):
         """根据用户反馈调整现有行程"""
@@ -245,3 +293,34 @@ class TripPlannerAgent:
 
         async for chunk in self.llm_client.chat_stream(messages):
             yield chunk
+
+
+
+    async def gossip(self, conversation):
+        context = await conversation.get_context(max_tokens=30000, token_counter=self.llm_client.count_tokens)
+
+        if not context:
+            yield "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"
+            return
+
+        # context 按时间升序排列，最后一条是当前用户消息
+        # 拆开：前面的当历史上下文，最后一条单独当 user_input，避免重复
+        history = context[:-1]
+        user_input = context[-1]["content"]
+
+        messages = self.prompt_builder.build_messages(
+            history=history,
+            user_input=user_input,
+        )
+
+        full_text = ""
+
+        async for chunk in self.llm_client.chat_stream(messages):
+            full_text += chunk
+            yield {"type" : "token", "content" : chunk}
+
+
+        await conversation.add_message("assistant", full_text)
+        yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
+
+
