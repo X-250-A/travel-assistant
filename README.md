@@ -2,12 +2,16 @@
 
 基于 DeepSeek V4 大模型的智能旅游规划助手，通过多轮对话理解用户偏好，自动生成结构化行程方案。
 
+> **最新版本**: [v0.4.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.4.0) — "视觉重生" 🎨 | [更新日志](RELEASE_NOTES.md)
+
 ## 功能概览
 
 - **用户认证** — JWT 注册/登录，bcrypt 密码哈希
-- **AI 多轮对话** — SSE 流式输出，Agent 编排工具调用，自动识别规划意图
-- **行程生成** — LLM 根据对话内容生成包含每日安排、景点推荐、出行贴士的结构化行程 JSON
-- **历史行程管理** — 行程列表浏览、详情查看、删除
+- **AI 多轮对话** — SSE 流式输出，Agent 编排工具调用，LLM 意图分类 + 闲聊分流
+- **行程生成** — LLM 根据对话内容生成包含每日安排、景点推荐、出行贴士的结构化行程 JSON，支持确认/草稿状态
+- **天气预报** — 通过工具调用自动查询目的地天气，融入行程建议
+- **预算估算** — 根据天数/人数/档次（经济/舒适/豪华）自动计算旅行预算
+- **历史行程管理** — 行程列表、详情查看、删除
 
 ## 技术栈
 
@@ -16,7 +20,8 @@
 | 后端 | Python 3.14 + FastAPI + SQLAlchemy 2.0 (async) |
 | 前端 | Next.js 15 (App Router) + React 19 + TypeScript + Tailwind CSS 4 |
 | 数据库 | SQLite (aiosqlite)，可选切换 MySQL 8.0 (aiomysql) |
-| AI | DeepSeek API (兼容 OpenAI SDK 调用) |
+| AI | DeepSeek API (兼容 OpenAI SDK 调用)，支持 Function Calling |
+| 容器化 | Docker + docker-compose (backend + frontend + mysql) |
 
 ## 项目结构
 
@@ -31,22 +36,32 @@
 │       ├── routers/             # auth(注册登录), chat(SSE流式), trips(CRUD)
 │       ├── crud/                # 数据库操作: user, trip, message
 │       ├── services/            # LLM 客户端 + Prompt 构建器
-│       ├── agent/               # 会话管理 + 行程规划 Agent
+│       ├── agent/               # 会话管理 + 行程规划 Agent + 意图分类
+│       ├── tools/               # 工具注册中心 + 天气 + 预算计算
+│       │   ├── base.py          # Tool dataclass 统一工具定义
+│       │   ├── __init__.py      # 工具注册与调度
+│       │   ├── weather.py       # 天气预报工具
+│       │   └── budget_calculate.py  # 预算估算工具
+│       ├── middleware/           # 认证中间件
 │       └── utils/               # JWT, 密码哈希
 ├── frontend/
 │   ├── app/                     # Next.js App Router 页面
-│   │   ├── page.tsx             # 首页（行程列表）
+│   │   ├── page.tsx             # 首页（聊天 + 行程规划）
 │   │   ├── login/page.tsx       # 登录页
 │   │   ├── register/page.tsx    # 注册页
+│   │   ├── trips/page.tsx       # 行程列表页
 │   │   └── trips/[id]/page.tsx  # 行程详情页
 │   ├── components/              # UI 组件 & 业务组件
 │   │   ├── ui/                  # Button, Card, Loading
 │   │   ├── trip/                # TripCard, TripDetail
-│   │   └── chat/                # ChatContainer, ChatInput, MessageBubble, StreamingText
+│   │   ├── chat/                # ChatContainer, ChatInput, MessageBubble, StreamingText
+│   │   └── auth/                # AuthForm
 │   ├── hooks/                   # useAuth, useChat
 │   ├── lib/api.ts               # HTTP 客户端 + SSE 流式请求
 │   └── types/index.ts           # TypeScript 类型定义
-└── .env.example
+├── docker-compose.yml
+├── .env.example
+└── RELEASE_NOTES.md
 ```
 
 ## 快速开始
@@ -88,6 +103,16 @@ npm run dev
 
 浏览器打开 `http://localhost:3000`，注册账号后即可使用。
 
+### 4. Docker 部署
+
+```bash
+# 启动全部服务（backend + frontend + mysql）
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
+```
+
 ## 环境变量
 
 | 变量 | 说明 | 示例 |
@@ -95,9 +120,10 @@ npm run dev
 | `DATABASE_URL` | 数据库连接串 | `sqlite+aiosqlite:///./trip_agent.db` |
 | `SECRET_KEY` | JWT 签名密钥 | 随机字符串 |
 | `DEEPSEEK_API_KEY` | DeepSeek API Key | `sk-xxx` |
-| `DEEPSEEK_BASE_URL` | API 地址 | `https://api.deepseek.com` |
+| `DEEPSEEK_BASE_URL` | DeepSeek API 地址 | `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | 模型名 | `deepseek-v4-flash` |
 | `MAX_CONTEXT_TOKENS` | 上下文窗口上限 | `6000` |
+| `WEATHER_API_KEY` | （可选）OpenWeatherMap API Key | 用于天气预报工具 |
 | `CORS_ORIGINS` | 允许的前端域名 | `http://localhost:3000` |
 
 ## API 接口
@@ -113,7 +139,7 @@ npm run dev
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/api/chat` | 发送消息（SSE 流式响应） |
+| POST | `/api/chat` | 发送消息（SSE 流式响应，支持 Function Calling） |
 
 ### 行程
 
@@ -126,6 +152,17 @@ npm run dev
 | GET | `/api/trips/{id}/messages` | 行程对话历史 |
 
 所有接口（除注册/登录外）需携带 `Authorization: Bearer <token>` 请求头。
+
+## 版本历史
+
+| 版本 | 日期 | 说明 |
+|---|---|---|
+| [v0.4.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.4.0) | 2026-07-29 | 前端 UI 全面优化 + 后端工具注册机制重构 + 预算计算工具 |
+| v0.3.0 | 2026-07-27 | LLM 意图分类 + 闲聊分流 + 工具调用循环防护 |
+| v0.2.0 | 2026-07-25 | Tool Calling 机制 + 天气预报工具 |
+| v0.1.0 | 2026-07-24 | MVP 发布 |
+
+详见 [RELEASE_NOTES.md](RELEASE_NOTES.md)
 
 ## 文档
 
