@@ -1,6 +1,6 @@
 # 旅游助手 Agent API 接口规范
 
-> v1.0 | 基准 URL: `http://localhost:8000` | 协议: REST JSON + SSE 流式
+> v0.4.0 | Base URL: `http://localhost:8000` | Protocol: REST JSON + SSE Streaming
 
 ---
 
@@ -8,11 +8,26 @@
 
 ### 1.1 请求格式
 
-- Content-Type: `application/json`（除注册/登录外，所有请求必须携带 JWT）
-- 认证方式: `Authorization: Bearer <access_token>`
-- 字符编码: UTF-8
+- **Content-Type**: `application/json`
+- **认证方式**: `Authorization: Bearer <access_token>`（注册/登录除外）
+- **字符编码**: UTF-8
 
-### 1.2 响应格式
+### 1.2 认证体系
+
+使用 JWT (HS256) 无状态认证。流程：
+
+```
+注册 → 登录获取 token → 后续请求携带 Authorization: Bearer <token>
+                                │
+                                ├─ JWT Middleware 拦截
+                                ├─ 白名单放行（/docs, /api/auth/*）
+                                ├─ 解码验证 → request.state.user_id
+                                └─ get_current_user → 查 DB → User 对象
+```
+
+JWT 默认 **7 天过期**，过期后需重新登录。
+
+### 1.3 响应格式
 
 **成功响应**：
 
@@ -31,28 +46,19 @@
 }
 ```
 
-### 1.3 HTTP 状态码
+### 1.4 HTTP 状态码
 
-| 状态码 | 含义                   |
-| --- | -------------------- |
-| 200 | 请求成功                 |
-| 201 | 创建成功                 |
-| 400 | 请求参数错误               |
-| 401 | 未认证（JWT 缺失或无效）       |
-| 403 | 无权限（访问了不属于自己的资源）     |
-| 404 | 资源不存在                |
-| 422 | 请求体验证失败（Pydantic 校验） |
-| 500 | 服务器内部错误              |
-
-### 1.4 认证说明
-
-除注册和登录外，所有接口都要在 Header 中携带 JWT：
-
-```
-Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-```
-
-JWT 默认 7 天过期。过期后需重新登录获取新 Token。
+| 状态码 | 含义 | 触发场景 |
+|--------|------|---------|
+| 200 | 成功 | GET 请求、PATCH 请求 |
+| 201 | 创建成功 | POST /api/auth/register |
+| 400 | 请求参数错误 | 用户名已存在 |
+| 401 | 未认证 | JWT 缺失/无效/过期、格式错误 |
+| 403 | 无权限 | 访问不属于自己的行程 |
+| 404 | 资源不存在 | 行程 ID 无效 |
+| 422 | 请求体验证失败 | Pydantic 字段校验失败 |
+| 429 | 请求过多 | 速率限制（v0.5.0 规划） |
+| 500 | 服务器内部错误 | 未捕获异常 |
 
 ---
 
@@ -60,23 +66,22 @@ JWT 默认 7 天过期。过期后需重新登录获取新 Token。
 
 ### 2.1 枚举值
 
-| 枚举               | 可选值                                                  | 说明       |
-| ---------------- | ---------------------------------------------------- | -------- |
-| `TripStatus`     | `draft`, `confirmed`                                 | 行程状态     |
-| `MessageRole`    | `user`, `assistant`, `system`                        | 消息角色     |
-| `IntentType`     | `new_trip`, `modify_trip`, `ask_question`, `unclear` | 用户意图     |
-| `AttractionType` | `景点`, `餐饮`, `购物`, `交通枢纽`, `其他`                       | 行程中的地点类型 |
-| `MealType`       | `breakfast`, `lunch`, `dinner`, `snack`              | 用餐类型     |
+| 枚举 | 可选值 | 说明 |
+|------|--------|------|
+| `TripStatus` | `draft`, `confirmed` | 行程状态 |
+| `MessageRole` | `user`, `assistant`, `system` | 消息发送者 |
+| `IntentType` | `new_trip`, `modify_trip`, `ask_question`, `unclear` | Agent 意图分类结果 |
+| `MealType` | `breakfast`, `lunch`, `dinner`, `snack` | 用餐类型 |
 
-### 2.2 核心数据结构
+### 2.2 核心类型
 
 #### User
 
 ```typescript
 interface User {
-  id: string;           // UUID
-  username: string;     // 唯一用户名
-  created_at: string;   // ISO 8601
+  id: number;
+  username: string;
+  created_at: string;  // ISO 8601
 }
 ```
 
@@ -84,13 +89,13 @@ interface User {
 
 ```typescript
 interface Trip {
-  id: string;            // UUID
-  user_id: string;       // 所属用户 UUID
-  title: string;         // 如 "成都三日美食之旅"
-  plan_data: PlanData | null;  // 完整行程 JSON，null 表示尚未生成
+  id: number;
+  user_id: number;
+  title: string;                      // e.g. "成都三日美食之旅"
+  plan_data: PlanData | null;         // null = 尚未生成行程
   status: "draft" | "confirmed";
-  created_at: string;    // ISO 8601
-  updated_at: string;    // ISO 8601
+  created_at: string;
+  updated_at: string;
 }
 ```
 
@@ -98,36 +103,36 @@ interface Trip {
 
 ```typescript
 interface PlanData {
-  destination: string;       // 目的地城市
-  duration: number;          // 行程天数
-  budget: number;            // 预算（元）
-  style: string[];           // 风格标签，如 ["美食", "人文", "自然风光"]
-  overview: string;          // 行程概述（1-2 段话）
-  days: DayPlan[];           // 每日计划
-  overall_tips: string;      // 综合旅行贴士
+  destination: string;                // 目的地城市
+  duration: number;                   // 行程天数
+  budget: number;                     // 预估预算（元）
+  style: string[];                    // 风格标签 e.g. ["美食", "人文"]
+  overview: string;                   // 行程概述 1-2 段
+  days: DayPlan[];                    // 每日计划
+  overall_tips: string;               // 综合贴士
 }
 
 interface DayPlan {
-  day: number;               // 第几天，从 1 开始
-  date: string | null;       // 具体日期，null 表示待定
-  theme: string;             // 当日主题，如 "市区人文初探"
-  attractions: Attraction[]; // 当日景点/活动列表
-  meals: Meal[];             // 当日用餐推荐
+  day: number;                        // 第 N 天 (1-based)
+  date: string | null;                // 具体日期，null=待定
+  theme: string;                      // 当日主题
+  attractions: Attraction[];          // 景点/活动
+  meals: Meal[];                      // 用餐推荐
 }
 
 interface Attraction {
-  name: string;                    // 名称
-  type: string;                    // 类型：景点、餐饮等
-  duration_minutes: number;        // 建议停留时长（分钟）
-  cost_yuan: number;               // 费用（元），0 表示免费
-  tips: string;                    // 游玩提示
-  transport_from_previous: string | null;  // 从上一个景点过来的交通方式，首个景点为 null
+  name: string;
+  type: string;                       // "景点" | "餐饮" | "购物" | ...
+  duration_minutes: number;
+  cost_yuan: number;                  // 0 = 免费
+  tips: string;
+  transport_from_previous: string | null;  // 交通方式，首个景点为 null
 }
 
 interface Meal {
-  meal_type: string;         // breakfast / lunch / dinner / snack
-  suggestion: string;        // 用餐推荐描述
-  location_near: string;     // 附近位置
+  meal_type: "breakfast" | "lunch" | "dinner" | "snack";
+  suggestion: string;                 // 推荐描述
+  location_near: string;              // 附近地标
 }
 ```
 
@@ -135,45 +140,25 @@ interface Meal {
 
 ```typescript
 interface Message {
-  id: string;              // UUID
-  trip_id: string;         // 所属行程 UUID
+  id: number;
+  trip_id: number;
   role: "user" | "assistant" | "system";
-  content: string;         // 消息文本
-  created_at: string;      // ISO 8601
+  content: string;
+  created_at: string;
 }
 ```
 
 ---
 
-## 3. 接口列表
+## 3. 接口详述
 
-### 3.1 健康检查
+### 3.1 认证模块
 
-```
-GET /api/health
-```
+#### `POST /api/auth/register` — 用户注册
 
-无需认证。用于验证后端服务是否正常运行。
+无需认证。
 
-**响应示例**：
-
-```json
-{
-  "status": "ok"
-}
-```
-
----
-
-### 3.2 用户认证
-
-#### 3.2.1 注册
-
-```
-POST /api/auth/register
-```
-
-**请求体**：
+**Request Body**：
 
 ```json
 {
@@ -182,36 +167,32 @@ POST /api/auth/register
 }
 ```
 
-| 字段         | 类型     | 必填  | 说明             |
-| ---------- | ------ | --- | -------------- |
-| `username` | string | 是   | 用户名，3-30 字符，唯一 |
-| `password` | string | 是   | 密码，6-100 字符    |
+| 字段 | 类型 | 必填 | 约束 |
+|------|------|------|------|
+| `username` | string | ✅ | 3-30 字符，唯一 |
+| `password` | string | ✅ | 6-100 字符 |
 
-**成功响应 (201)**：
+**Response (201)**：
 
 ```json
 {
-  "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "username": "zhangsan",
-    "created_at": "2026-07-10T12:00:00Z"
-  },
-  "message": "注册成功"
+  "id": 1,
+  "username": "zhangsan",
+  "created_at": "2026-07-30T12:00:00"
 }
 ```
 
-**错误示例**：
+**错误**：
+- `400` — `{"detail": "用户名已存在"}`
+- `422` — Pydantic 字段校验失败
 
-- 用户名已存在 (400): `{"detail": "用户名已被注册"}`
-- 校验失败 (422): `{"detail": [{"loc": ["body", "username"], "msg": "ensure this value has at least 3 characters"}]}`
+---
 
-#### 3.2.2 登录
+#### `POST /api/auth/login` — 用户登录
 
-```
-POST /api/auth/login
-```
+无需认证。
 
-**请求体**：
+**Request Body**：
 
 ```json
 {
@@ -220,7 +201,7 @@ POST /api/auth/login
 }
 ```
 
-**成功响应 (200)**：
+**Response (200)**：
 
 ```json
 {
@@ -229,44 +210,36 @@ POST /api/auth/login
 }
 ```
 
-`access_token` 即 JWT，后续请求在 Header 中携带。
+**错误**：
+- `401` — `{"detail": "用户名或密码错误"}`
 
-**错误示例**：
+---
 
-- 用户名或密码错误 (401): `{"detail": "用户名或密码错误"}`
+#### `GET /api/auth/me` — 获取当前用户
 
-#### 3.2.3 获取当前用户信息
+**需要认证**。
 
-```
-GET /api/auth/me
-```
+**Headers**：`Authorization: Bearer <token>`
 
-需要认证。
-
-**响应示例 (200)**：
+**Response (200)**：
 
 ```json
 {
-  "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "username": "zhangsan",
-    "created_at": "2026-07-10T12:00:00Z"
-  },
-  "message": "ok"
+  "id": 1,
+  "username": "zhangsan",
+  "created_at": "2026-07-30T12:00:00"
 }
 ```
 
 ---
 
-### 3.3 聊天（核心接口）
+### 3.2 对话模块（核心）
 
-```
-POST /api/chat
-```
+#### `POST /api/chat` — 发送消息，接收 Agent 流式响应
 
-需要认证。这是整个系统最核心的接口——接收用户消息，返回 Agent 的流式响应。
+**需要认证**。整个系统的核心端点。接收用户消息，经过 Agent 流水线（意图分类 → 工具调用循环 → LLM 生成），以 SSE 流式返回。
 
-**请求体**：
+**Request Body**：
 
 ```json
 {
@@ -275,260 +248,246 @@ POST /api/chat
 }
 ```
 
-| 字段        | 类型     | 必填  | 说明                              |
-| --------- | ------ | --- | ------------------------------- |
-| `message` | string | 是   | 用户发送的消息文本                       |
-| `trip_id` | string | 否   | 已有行程的 UUID。传入则表示继续已有对话；不传则创建新行程 |
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `message` | string | ✅ | 用户消息 |
+| `trip_id` | int \| null | 否 | 已有行程 ID，不传则自动创建新行程 |
 
-**响应**：SSE (Server-Sent Events) 流式响应，Content-Type 为 `text/event-stream`。
+**Response**：`Content-Type: text/event-stream`
 
-#### SSE 事件类型
+##### SSE 事件类型
 
-流式响应由多个 SSE 事件组成，每个事件格式为 `event: <事件名>\ndata: <JSON>\n\n`：
+流式响应由多个 SSE 事件组成，每个事件格式为 `data: <JSON>\n\n`：
 
-**事件 1: `token`** — 流式输出中的文本片段（多次发送）
-
-```
-event: token
-data: {"content": "第一天：西湖..."}
-
-event: token
-data: {"content": "环湖漫步，苏堤春晓 → 断桥残雪..."}
-
-event: token
-data: {"content": "\n\n第二天：九溪十八涧 → 龙井村..."}
-```
-
-每个 `token` 事件携带 LLM 生成的一个文本片段。前端应将这些片段累积拼接，实现逐字渲染效果。
-
-**事件 2: `plan`** — Agent 完成生成后，发送解析后的结构化行程数据
+**`token` 事件** — 逐字文本块（打字机效果），多次发送：
 
 ```
-event: plan
-data: {"trip_id": "xxx", "title": "杭州三日自然之旅", "plan_data": {...}}
+data: {"type":"token","content":"好"}
+
+data: {"type":"token","content":"的，我为您规划..."}
+
+data: {"type":"token","content":"\n\n## 第一天：西湖经典环湖"}
 ```
 
-`plan_data` 的结构见 2.2 节 PlanData 定义。
-
-**事件 3: `done`** — 流结束
+**`done` 事件** — 流结束，携带 trip_id 供前端关联：
 
 ```
-event: done
-data: {}
+data: {"type":"done","data":{"trip_id":42}}
 ```
 
-**事件 4: `error`** — 发生错误
+**`error` 事件** — 异常信息：
 
 ```
-event: error
-data: {"detail": "行程生成失败，请重试"}
+data: {"type":"error","detail":"行程生成失败，请重试"}
 ```
 
-#### 完整流式响应示例
+##### Agent 内部流程
 
 ```
-event: token
-data: {"content": "好的，我为您规划了一个杭州三日自然风光之旅。\n\n"}
-
-event: token
-data: {"content": "## 行程总览\n杭州三日游，预算 2000 元，以自然风光为主，兼顾人文体验。\n\n"}
-
-event: token
-data: {"content": "## 第一天：西湖经典..."}
-
-... 更多 token 事件 ...
-
-event: plan
-data: {"trip_id":"550e8400-e29b-41d4-a716-446655440100","title":"杭州三日自然之旅","plan_data":{"destination":"杭州","duration":3,"budget":2000,"style":["自然风光"],"overview":"...","days":[...],"overall_tips":"..."}}
-
-event: done
-data: {}
+POST /api/chat
+  │
+  ├─ ① 找到或创建 Trip
+  │     trip_id 有值 → 查 DB 验证归属
+  │     trip_id null → 新增 Trip (title="新行程")
+  │
+  ├─ ② 初始化 ConversationManager（状态机 + 历史消息）
+  │
+  ├─ ③ TripPlannerAgent.handle_message()
+  │     ├─ LLM 意图分类 (new_trip / modify_trip / ask_question)
+  │     ├─ 生成行程：工具调用循环 + 流式输出
+  │     ├─ 调整行程：当前 JSON + 反馈 → LLM 局部修改
+  │     └─ 闲聊：直接流式对话
+  │
+  ├─ ④ JSON 解析 + plan_data 落库
+  │
+  └─ ⑤ SSE 流式返回每条 token
 ```
 
-#### 前端消费 SSE 示例
+##### 前端消费示例
 
 ```typescript
-async function sendMessage(message: string, tripId: string | null) {
-  const response = await fetch('http://localhost:8000/api/chat', {
-    method: 'POST',
+async function sendMessage(message: string, tripId: number | null, token: string) {
+  const res = await fetch("http://localhost:8000/api/chat", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ message, trip_id: tripId }),
   });
 
-  const reader = response.body!.getReader();
+  const reader = res.body!.getReader();
   const decoder = new TextDecoder();
-  let buffer = '';
+  let buffer = "";
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
     buffer += decoder.decode(value, { stream: true });
-
-    // 按行解析 SSE
-    const lines = buffer.split('\n');
-    buffer = lines.pop() || '';  // 保留不完整的最后一行
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
 
     for (const line of lines) {
-      if (line.startsWith('event: ')) {
-        const eventType = line.slice(7).trim();
-        // 下一行是 data: ...
-        continue;
-      }
-      if (line.startsWith('data: ')) {
-        const data = JSON.parse(line.slice(6));
-        switch (currentEvent) {
-          case 'token':
-            appendToDisplay(data.content);  // 追加文本到聊天区域
-            break;
-          case 'plan':
-            updateTrip(data);  // 更新行程数据
-            break;
-          case 'done':
-            finishStreaming();  // 结束流式显示
-            break;
-          case 'error':
-            showError(data.detail);  // 显示错误
-            break;
-        }
+      if (!line.startsWith("data: ")) continue;
+      const event = JSON.parse(line.slice(6));
+
+      switch (event.type) {
+        case "token":
+          appendToChat(event.content);      // 累积渲染
+          break;
+        case "done":
+          setCurrentTripId(event.data.trip_id);  // 记住行程 ID
+          finishStreaming();
+          break;
+        case "error":
+          showError(event.detail);
+          break;
       }
     }
   }
 }
 ```
 
-#### 错误响应（非流式，请求级别错误）
+##### 错误
 
-- 未认证 (401): `{"detail": "未提供有效的认证令牌"}`
-- 校验失败 (422): `{"detail": [{"loc": ["body", "message"], "msg": "field required"}]}`
-- LLM 超时 (504): 前端收到 `event: error` 事件
+- `401` — `{"detail": "未提供认证信息"}`
+- `403` — `{"detail": "无权限访问该行程"}`（trip 不属于当前用户）
+- `404` — `{"detail": "行程不存在"}`
+- `422` — 请求体字段校验失败
 
 ---
 
-### 3.4 行程管理
+### 3.3 行程管理
 
-#### 3.4.1 行程列表
+#### `GET /api/trips` — 行程列表
 
-```
-GET /api/trips
-```
+**需要认证**。返回当前用户的所有行程，按更新时间倒序。
 
-需要认证。返回当前用户的所有行程，按更新时间倒序排列。
+**Query Parameters**：
 
-**查询参数**：
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `page` | integer | 否 | 1 | 页码 |
+| `page_size` | integer | 否 | 100 | 每页数量 |
 
-| 参数          | 类型      | 必填  | 默认值 | 说明         |
-| ----------- | ------- | --- | --- | ---------- |
-| `page`      | integer | 否   | 1   | 页码         |
-| `page_size` | integer | 否   | 20  | 每页数量，最大 50 |
-
-**响应示例 (200)**：
+**Response (200)**：
 
 ```json
 {
-  "data": {
-    "trips": [
+  "trips": [
+    {
+      "id": 42,
+      "user_id": 1,
+      "title": "杭州三日自然之旅",
+      "status": "confirmed",
+      "created_at": "2026-07-30T10:00:00",
+      "updated_at": "2026-07-30T10:05:00"
+    },
+    {
+      "id": 41,
+      "user_id": 1,
+      "title": "成都三日美食之旅",
+      "status": "draft",
+      "created_at": "2026-07-29T14:00:00",
+      "updated_at": "2026-07-29T14:30:00"
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "page_size": 100
+}
+```
+
+> **注意**：列表不包含 `plan_data`（数据量大），详情需单独请求。
+
+---
+
+#### `GET /api/trips/{trip_id}` — 行程详情
+
+**需要认证**。返回完整行程信息，包含 `plan_data`。
+
+**Response (200)**：
+
+```json
+{
+  "id": 42,
+  "user_id": 1,
+  "title": "杭州三日自然之旅",
+  "plan_data": {
+    "destination": "杭州",
+    "duration": 3,
+    "budget": 2000,
+    "style": ["自然风光"],
+    "overview": "三日行程涵盖西湖经典与新西湖秘境...",
+    "days": [
       {
-        "id": "550e8400-e29b-41d4-a716-446655440100",
-        "user_id": "550e8400-e29b-41d4-a716-446655440000",
-        "title": "杭州三日自然之旅",
-        "status": "confirmed",
-        "created_at": "2026-07-10T12:00:00Z",
-        "updated_at": "2026-07-10T12:05:00Z"
-      },
-      {
-        "id": "550e8400-e29b-41d4-a716-446655440101",
-        "user_id": "550e8400-e29b-41d4-a716-446655440000",
-        "title": "成都三日美食之旅",
-        "status": "draft",
-        "created_at": "2026-07-09T10:00:00Z",
-        "updated_at": "2026-07-09T10:30:00Z"
+        "day": 1,
+        "date": null,
+        "theme": "西湖经典环湖",
+        "attractions": [
+          {
+            "name": "断桥残雪",
+            "type": "景点",
+            "duration_minutes": 60,
+            "cost_yuan": 0,
+            "tips": "清晨前往游客较少",
+            "transport_from_previous": null
+          }
+        ],
+        "meals": [
+          {
+            "meal_type": "lunch",
+            "suggestion": "楼外楼东坡肉，人均 80 元",
+            "location_near": "孤山路"
+          }
+        ]
       }
     ],
-    "total": 2,
-    "page": 1,
-    "page_size": 20
+    "overall_tips": "杭州地铁覆盖主要景点，6月多雨建议带伞"
   },
-  "message": "ok"
+  "status": "confirmed",
+  "created_at": "2026-07-30T10:00:00",
+  "updated_at": "2026-07-30T10:05:00"
 }
 ```
 
-> 列表不返回 `plan_data`（数据量大），详情需单独请求。
+**错误**：
+- `401` — 未认证
+- `403` — 无权访问（行程不属于当前用户）
+- `404` — 行程不存在
 
-#### 3.4.2 行程详情
+---
 
-```
-GET /api/trips/{trip_id}
-```
+#### `PATCH /api/trips/{trip_id}` — 更新行程
 
-需要认证。返回指定行程的完整信息，包含 `plan_data`。
+**需要认证**。支持修改 `title` 或 `status`（如 `draft` → `confirmed`）。支持部分更新——只传要改的字段。
 
-**响应示例 (200)**：
+**Request Body**：
 
 ```json
 {
-  "data": {
-    "id": "550e8400-e29b-41d4-a716-446655440100",
-    "user_id": "550e8400-e29b-41d4-a716-446655440000",
-    "title": "杭州三日自然之旅",
-    "plan_data": {
-      "destination": "杭州",
-      "duration": 3,
-      "budget": 2000,
-      "style": ["自然风光"],
-      "overview": "三日行程...",
-      "days": [
-        {
-          "day": 1,
-          "date": null,
-          "theme": "西湖经典环湖",
-          "attractions": [
-            {
-              "name": "断桥残雪",
-              "type": "景点",
-              "duration_minutes": 60,
-              "cost_yuan": 0,
-              "tips": "建议清晨前往，游客较少",
-              "transport_from_previous": null
-            }
-          ],
-          "meals": [
-            {
-              "meal_type": "lunch",
-              "suggestion": "楼外楼东坡肉，人均 80 元",
-              "location_near": "孤山路"
-            }
-          ]
-        }
-      ],
-      "overall_tips": "杭州地铁覆盖主要景点..."
-    },
-    "status": "confirmed",
-    "created_at": "2026-07-10T12:00:00Z",
-    "updated_at": "2026-07-10T12:05:00Z"
-  },
-  "message": "ok"
+  "title": "杭州三日深度游",
+  "status": "confirmed"
 }
 ```
 
-**错误示例**：
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `title` | string | 否 | 新标题，不传则不改 |
+| `status` | string | 否 | `draft` / `confirmed`，不传则不改 |
 
-- 行程不存在 (404): `{"detail": "行程不存在"}`
-- 无权访问 (403): `{"detail": "无权访问此行程"}`
-- 未经认证 (401): `{"detail": "未提供有效的认证令牌"}`
+**Response (200)**：返回更新后的完整 Trip 对象。
 
-#### 3.4.3 删除行程
+**错误**：同详情接口。
 
-```
-DELETE /api/trips/{trip_id}
-```
+---
 
-需要认证。删除行程同时删除其关联的所有消息。
+#### `DELETE /api/trips/{trip_id}` — 删除行程
 
-**响应示例 (200)**：
+**需要认证**。删除行程同时级联删除其关联的所有消息。
+
+**Response (200)**：
 
 ```json
 {
@@ -537,43 +496,143 @@ DELETE /api/trips/{trip_id}
 }
 ```
 
-**错误示例**：同 3.4.2 详情接口。
+**错误**：同详情接口。
+
+---
+
+#### `GET /api/trips/{trip_id}/messages` — 行程对话历史
+
+**需要认证**。返回指定行程的所有对话消息，按时间升序排列。
+
+**Response (200)**：
+
+```json
+[
+  {
+    "id": 1001,
+    "trip_id": 42,
+    "role": "user",
+    "content": "帮我规划杭州三日游",
+    "created_at": "2026-07-30T10:00:00"
+  },
+  {
+    "id": 1002,
+    "trip_id": 42,
+    "role": "assistant",
+    "content": "好的，为您规划了杭州三日自然风光之旅...",
+    "created_at": "2026-07-30T10:00:15"
+  }
+]
+```
+
+> **用途**：前端加载已有行程时，重新渲染完整的对话历史。
+
+---
+
+### 3.4 健康检查
+
+#### `GET /` — 根路径
+
+无需认证。
+
+**Response (200)**：
+
+```json
+{
+  "message": "Hello World"
+}
+```
 
 ---
 
 ## 4. 接口总览
 
-| 方法     | 路径                     | 认证  | 说明             |
-| ------ | ---------------------- | --- | -------------- |
-| GET    | `/api/health`          | 否   | 健康检查           |
-| POST   | `/api/auth/register`   | 否   | 用户注册           |
-| POST   | `/api/auth/login`      | 否   | 用户登录           |
-| GET    | `/api/auth/me`         | 是   | 当前用户信息         |
-| POST   | `/api/chat`            | 是   | 发送消息（SSE 流式响应） |
-| GET    | `/api/trips`           | 是   | 行程列表           |
-| GET    | `/api/trips/{trip_id}` | 是   | 行程详情           |
-| DELETE | `/api/trips/{trip_id}` | 是   | 删除行程           |
+| 方法 | 路径 | 认证 | 说明 |
+|------|------|------|------|
+| GET | `/` | 否 | 根路径 |
+| POST | `/api/auth/register` | 否 | 用户注册 |
+| POST | `/api/auth/login` | 否 | 用户登录 |
+| GET | `/api/auth/me` | 是 | 当前用户信息 |
+| POST | `/api/chat` | 是 | **核心**：发送消息（SSE 流式） |
+| GET | `/api/trips` | 是 | 行程列表（分页） |
+| GET | `/api/trips/{id}` | 是 | 行程详情（含 plan_data） |
+| PATCH | `/api/trips/{id}` | 是 | 更新行程标题/状态 |
+| DELETE | `/api/trips/{id}` | 是 | 删除行程（级联删消息） |
+| GET | `/api/trips/{id}/messages` | 是 | 行程对话历史 |
 
 ---
 
-## 5. 错误处理最佳实践
+## 5. Agent 工具调用（隐式）
 
-**前端建议**：
+以下工具由 Agent 在对话中**自动调用**，前端无需感知。用户只需要自然对话，Agent 自主决定调用时机。
 
-- 401 错误：清除 localStorage 中的 Token，跳转登录页
-- 422 错误：解析 Pydantic 校验详情，在表单字段旁显示错误提示
-- SSE `error` 事件：在聊天区域显示错误提示，保留已生成的部分内容
-- 网络超时：显示"网络连接失败，请检查后端是否正常运行"
+| 工具名 | 触发场景示例 | 返回内容 |
+|--------|-------------|---------|
+| `weather` | "成都下周天气怎么样" | 温度/湿度/风力/天气描述 |
+| `budget_calculate` | "预算大概多少" | 住宿/餐饮/交通/门票/其他分项 |
+| `transport_guiding` | "北京到杭州怎么去" | 距离/耗时/推荐方式/费用估算 |
 
-**后端建议**：
+**工具调用上限**：单次对话最多 10 轮工具调用，超过后强制生成回复（防止死循环）。
 
-- 所有异常经过统一的异常处理器，避免直接暴露 traceback
-- 日志记录每次 LLM 调用的 Request ID 和耗时，方便排查
-- SSE 连接中断时，后端应能清理资源（关闭 LLM 流、释放数据库连接）
+---
+
+## 6. 前端错误处理指南
+
+```typescript
+// 全局 fetch 拦截器
+function handleApiError(status: number, detail: string) {
+  switch (status) {
+    case 401:
+      localStorage.removeItem("token");
+      router.push("/login");
+      break;
+    case 403:
+      showToast("无权访问该资源");
+      break;
+    case 422:
+      // Pydantic 校验错误，解析字段级提示
+      showFieldErrors(detail);
+      break;
+    case 429:
+      // 速率限制（v0.5.0）
+      showToast("请求过快，请稍候");
+      break;
+    case 500:
+      showToast("服务器异常，请稍后重试");
+      break;
+  }
+}
+
+// SSE 流中的 error 事件处理
+function handleSSEError(event: { type: "error"; detail: string }) {
+  showChatError(event.detail);     // 在聊天区显示错误提示
+  // 不丢失已生成的部分内容
+  // 用户可重新发送或修改需求
+}
+```
+
+---
+
+## 7. 环境变量
+
+服务端通过 `.env` 文件配置：
+
+| 变量 | 说明 | 示例 |
+|------|------|------|
+| `DATABASE_URL` | 数据库连接串 | `sqlite+aiosqlite:///./trip_agent.db` |
+| `SECRET_KEY` | JWT HS256 签名密钥 | 随机字符串（`openssl rand -hex 32`） |
+| `DEEPSEEK_API_KEY` | DeepSeek API Key | `sk-xxx` |
+| `DEEPSEEK_BASE_URL` | DeepSeek 接口地址 | `https://api.deepseek.com` |
+| `DEEPSEEK_MODEL` | 模型名称 | `deepseek-v4-flash` |
+| `WEATHER_API_KEY` | OpenWeatherMap Key | 用于天气工具 |
+| `AMAP_API_KEY` | 高德地图 API Key | 用于交通规划工具 |
+| `LLM_CONNECT_TIMEOUT` | LLM 连接超时（秒）| `10.0` |
+| `LLM_READ_TIMEOUT` | LLM 读取超时（秒）| `45.0` |
+| `LLM_REQUEST_TIMEOUT` | LLM 请求总超时（秒）| `90.0` |
+| `CORS_ORIGINS` | 允许的跨域来源 | `http://localhost:3000` |
 
 ---
 
 > **文档元信息**
-> 生成日期：2026-07-10
-> 版本：v1.0
+> 版本：v0.4.0 | 更新日期：2026-07-30 | 代码版本：2631511
 > 对应架构文档：旅游助手Agent架构设计.md

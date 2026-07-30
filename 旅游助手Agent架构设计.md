@@ -1,576 +1,316 @@
 # 旅游助手 Agent 架构设计
 
-> 本项目类型为 Web 应用（前后端分离），处于从零构思阶段。
+> v0.4.0 | 2026-07-30 | FastAPI + Next.js 前后端分离 | DeepSeek 驱动
 
 ---
 
 ## 1. 项目概述
 
-旅游助手 Agent 是一个面向国内游的行程规划智能体，以对话式交互为核心：用户在聊天界面描述旅行意图，Agent 理解需求后调用 DeepSeek 生成结构化行程，用户可继续通过对话调整，Agent 根据上下文持续优化方案。
+**Travel Agent** 是一个面向国内游的智能行程规划应用，以多轮对话为核心交互范式。用户用自然语言描述旅行意图（目的地、天数、预算、偏好），Agent 理解需求后通过 **LLM 推理 + 工具调用** 自主编排信息——查询天气、估算交通方案、计算预算——最终生成结构化行程 JSON。
 
-**Agent 的三个特征**：
+项目定位：**展示 Agentic AI 工程能力的全栈项目**——自定义 Agent 循环、工具编排系统、中间件管道、记忆管理（规划中）、多 Agent 协作（规划中）。
 
-1. **对话式交互**：多轮对话、逐步细化需求
-2. **上下文管理**：记住用户偏好、已讨论的行程、修改历史
-3. **工具编排（v2.0 预留）**：Agent 自主决定何时搜索景点、查询天气、比对交通方案
+### Agent 特征
 
-**MVP 范围（v1.0）**：对话式创建行程 → DeepSeek 生成行程 → 用户反馈调整 → 保存/查看历史。用户注册/登录纳入。
-
-**架构原则**：后端 FastAPI + 前端 Next.js 15，REST API 通信。FastAPI 承担 Agent 编排逻辑，Next.js 承担聊天 UI 和渲染。
+| 维度 | 当前实现 | 说明 |
+|------|---------|------|
+| **对话式交互** | ✅ | 多轮对话，逐步细化需求 |
+| **上下文管理** | ✅ | Token 感知的滑动窗口，自动裁剪历史消息 |
+| **意图分类** | ✅ | LLM 分类 + 关键词 fallback，支持 new_trip / modify_trip / ask_question |
+| **工具编排** | ✅ | Agent 自主决定调用时机，最大 10 轮工具调用循环，自动降级 |
+| **记忆系统** | 📋 规划中 | 用户偏好跨会话持久化，基于 Redis + 向量嵌入 |
+| **多 Agent 协作** | 📋 规划中 | Orchestrator + Research/Planner/Reviewer 子 Agent 架构 |
 
 ---
 
 ## 2. 系统架构
 
-```mermaid
-graph TB
-    subgraph "Next.js 15 前端"
-        A["Chat UI<br/>对话界面"]
-        B["行程展示卡片<br/>结构化行程渲染"]
-        C["用户认证页面<br/>登录/注册"]
-    end
-
-    subgraph "FastAPI 后端"
-        subgraph "路由层"
-            D["chat API<br/>POST /api/chat"]
-            E["trip API<br/>GET/POST /api/trips"]
-            F["auth API<br/>POST /api/auth/*"]
-        end
-        subgraph "Agent 编排层"
-            G["ConversationManager<br/>会话状态机、上下文管理"]
-            H["TripPlannerAgent<br/>行程规划 Agent 核心"]
-        end
-        subgraph "服务层"
-            I["LLMClient<br/>DeepSeek SDK 封装"]
-            J["PromptBuilder<br/>System Prompt + 上下文组装"]
-        end
-        subgraph "数据层"
-            K["SQLAlchemy ORM<br/>User / Trip / Message"]
-        end
-    end
-
-    subgraph "外部服务"
-        L["DeepSeek API<br/>Chat Completion"]
-    end
-
-    subgraph "数据存储"
-        M[("SQLite 开发<br/>MySQL 生产")]
-    end
-
-    A -->|"SSE / JSON"| D
-    B -->|"JSON"| E
-    C -->|"JSON"| F
-    D --> G
-    G --> H
-    H --> J
-    H --> I
-    I -->|"OpenAI 兼容"| L
-    G --> K
-    H --> K
-    K --> M
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Next.js 15 前端                          │
+│  ┌──────────┐  ┌───────────┐  ┌──────────┐  ┌───────────┐  │
+│  │ Chat UI  │  │ TripCard  │  │ AuthForm │  │ TripDetail│  │
+│  │ SSE 流式 │  │ 行程卡片  │  │ 登录注册 │  │ 行程详情  │  │
+│  └──────────┘  └───────────┘  └──────────┘  └───────────┘  │
+└──────────────────────┬──────────────────────────────────────┘
+                       │ REST JSON + SSE (Authorization: Bearer)
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    FastAPI 后端                              │
+│                                                             │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │              中间件管道 (Middleware Pipeline)         │    │
+│  │  CORS → JWT Auth Middleware → Rate Limit (规划中)    │    │
+│  └─────────────────────────────────────────────────────┘    │
+│                           │                                 │
+│  ┌────────────────────────┼──────────────────────────┐     │
+│  │          路由层 (Routers)                           │     │
+│  │  /api/auth/*    /api/chat    /api/trips/*          │     │
+│  └────────────────────────┼──────────────────────────┘     │
+│                           │                                 │
+│  ┌────────────────────────┼──────────────────────────┐     │
+│  │        Agent 编排层 (Agent Orchestration)           │     │
+│  │                                                    │     │
+│  │  ConversationManager          TripPlannerAgent     │     │
+│  │  ┌──────────────┐         ┌───────────────────┐    │     │
+│  │  │ 会话状态机   │         │ 感知-决策-执行循环 │    │     │
+│  │  │ 消息历史管理 │         │                    │    │     │
+│  │  │ 上下文窗口   │         │ ① LLM 意图分类    │    │     │
+│  │  │ Token 裁剪   │         │ ② 工具调用循环    │    │     │
+│  │  └──────────────┘         │ ③ 流式响应生成    │    │     │
+│  │                           │ ④ JSON 解析落库   │    │     │
+│  │                           └───────────────────┘    │     │
+│  └────────────────────────────────────────────────────┘     │
+│                           │                                 │
+│  ┌────────────────────────┼──────────────────────────┐     │
+│  │            服务层 (Services)                       │     │
+│  │  LLMClient              PromptBuilder              │     │
+│  │  ┌──────────────┐     ┌───────────────────┐       │     │
+│  │  │ 流式/非流式  │     │ System Prompt     │       │     │
+│  │  │ HTTPX 连接池 │     │ 模板管理          │       │     │
+│  │  │ Token 计数器 │     │ 上下文拼接        │       │     │
+│  │  └──────────────┘     └───────────────────┘       │     │
+│  └────────────────────────────────────────────────────┘     │
+│                           │                                 │
+│  ┌────────────────────────┼──────────────────────────┐     │
+│  │         工具系统 (Tool Registry)                    │     │
+│  │                                                    │     │
+│  │  Tool Dataclass → 注册中心 → OpenAI Schema 转换    │     │
+│  │  ┌──────────┐  ┌──────────────┐  ┌─────────────┐  │     │
+│  │  │  Weather │  │Budget Calc   │  │ Transport   │  │     │
+│  │  │  天气查询│  │ 预算估算     │  │ Guiding     │  │     │
+│  │  │          │  │              │  │ 交通规划    │  │     │
+│  │  └──────────┘  └──────────────┘  └─────────────┘  │     │
+│  └────────────────────────────────────────────────────┘     │
+│                           │                                 │
+│  ┌────────────────────────┼──────────────────────────┐     │
+│  │            数据层 (Data Layer)                     │     │
+│  │  SQLAlchemy 2.0 Async ORM                          │     │
+│  │  User / Trip / Message                             │     │
+│  │  SQLite (dev) / MySQL 8.0 (prod)                   │     │
+│  └────────────────────────────────────────────────────┘     │
+└─────────────────────────────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                   外部服务                                   │
+│  ┌──────────────┐  ┌────────────┐  ┌──────────────────┐    │
+│  │ DeepSeek API │  │ 高德地图   │  │ OpenWeatherMap   │    │
+│  │ (LLM 推理)   │  │ (驾车路径) │  │ (天气预报)       │    │
+│  └──────────────┘  └────────────┘  └──────────────────┘    │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**分层说明**：
+### 分层职责
 
-| 层 | 职责 | 为什么放在这里 |
-|----|------|---------------|
-| Next.js 前端 | 聊天 UI、行程卡片渲染、用户认证页面 | 前后端分离，AI 对 Next.js/React 生态的代码生成质量最高 |
-| 路由层 | HTTP 请求接入、参数校验、响应序列化 | FastAPI 的优势层——Pydantic 校验 + 自动文档 |
-| Agent 编排层 | 多轮对话状态管理、Agent 决策逻辑、上下文窗口控制 | 项目的核心——"Agent 的大脑"，独立一层便于测试和演进 |
-| 服务层 | DeepSeek API 调用封装、Prompt 模板管理 | 与编排层解耦——切换模型或调整 Prompt 只需改这一层 |
-| 数据层 | ORM 实体定义、数据库操作 | 标准持久化层，SQLAlchemy 统一 SQLite 和 MySQL |
-
-**通信方式**：
-- 前端 ↔ 后端：REST JSON API + SSE（Server-Sent Events，流式输出）
-- 后端 ↔ DeepSeek：HTTP（OpenAI 兼容 SDK）
-- 后端 ↔ 数据库：SQLAlchemy Session
+| 层 | 职责 | 设计原则 |
+|----|------|---------|
+| **中间件管道** | CORS、JWT 鉴权、请求级 user_id 注入 | 每个请求必经的关卡，鉴权逻辑与业务解耦 |
+| **路由层** | HTTP 接入、参数校验、响应序列化 | 薄适配层——只做协议转换，不写业务逻辑 |
+| **Agent 编排层** | 意图分类、工具调用循环、流式生成、JSON 解析 | 核心决策逻辑，独立于 HTTP，可复用到 CLI/WebSocket |
+| **服务层** | LLM API 封装、Prompt 模板管理 | 与编排层解耦——换模型只改这层 |
+| **工具系统** | Tool 定义、注册、OpenAI Schema 生成、执行分发 | 可插拔——加工具只加一个文件 |
+| **数据层** | ORM 实体、异步 CRUD、连接管理 | SQLAlchemy 统一 SQLite/MySQL |
 
 ---
 
-## 3. 技术选型说明
+## 3. 技术栈
 
 | 技术 | 用途 | 选型理由 |
 |------|------|---------|
-| Python 3.14 | 后端语言 | 已掌握；LLM 生态最成熟 |
-| FastAPI | 后端 Web 框架 | 原生 async/await、Pydantic 类型校验、自动 OpenAPI 文档 |
-| Next.js 15 (App Router) | 前端框架 | 业界主流 React 元框架；AI 代码生成对此生态支持极好 |
-| TypeScript | 前端语言 | 类型安全，AI 生成的 Next.js 代码默认用 TS |
-| DeepSeek Chat API | LLM 推理 | 已有 API Key；中文能力强；兼容 OpenAI 接口格式 |
-| openai (Python SDK) | LLM 调用 | DeepSeek 兼容 OpenAI 接口 |
-| SQLAlchemy 2.0 | ORM | 兼容 SQLite 和 MySQL；2.0 原生支持 async |
-| SQLite → MySQL 8.0 | 数据库 | 开发零配置，生产已有经验 |
-| Docker + Compose | 部署 | 已掌握，一键启动全栈 |
-
-### 未选型决策
-
-- CSS 方案：Tailwind CSS v4？shadcn/ui？建议先 Tailwind，需要组件时引入 shadcn/ui
-- 前端状态管理：React Context + useReducer？Zustand？v1.0 建议 Context
-- 流式输出方案：SSE？WebSocket？v1.0 建议 SSE
+| **Python 3.14 + FastAPI** | 后端框架 | 原生 async/await、Pydantic 类型校验、自动 OpenAPI 文档 |
+| **Next.js 15 (App Router)** | 前端框架 | React Server Components、App Router 文件约定路由 |
+| **React 19 + TypeScript** | 前端语言 | 类型安全，组件化 |
+| **Tailwind CSS 4** | 样式方案 | 原子化 CSS，自定义 Design Tokens |
+| **DeepSeek V4 (Flash)** | LLM 推理 | 中文能力强、兼容 OpenAI SDK、支持 Function Calling |
+| **SQLAlchemy 2.0 (async)** | ORM | 原生 async、SQLite/MySQL 统一抽象 |
+| **SQLite (aiosqlite)** | 开发数据库 | 零配置、文件级、随项目走 |
+| **MySQL 8.0 (aiomysql)** | 生产数据库 | Docker Compose 一键切换 |
+| **httpx** | HTTP 客户端 | 异步、连接池、超时控制，调用高德等外部 API |
+| **tiktoken** | Token 计数器 | OpenAI 兼容编码，精确控制上下文窗口 |
+| **bcrypt + python-jose** | 认证 | 密码哈希 + JWT 签发/验证 |
+| **Docker + Compose** | 部署 | backend + frontend + mysql 三服务编排 |
 
 ---
 
-## 4. 后端核心概念简介
+## 4. 核心设计
 
-**JWT (JSON Web Token) — 用户认证**
+### 4.1 Agent 推理循环
 
-bcrypt 加密密码存入数据库只是注册环节。用户登录后，后端颁发一个"通行证"（JWT），之后每次请求前端都带上这个通行证。流程：用户登录 → 验证密码 → 生成 JWT（user_id + 过期时间）→ 前端存浏览器 → 后续请求 Header 携带 `Authorization: Bearer <JWT>` → 后端中间件解码验证。JWT 是无状态令牌——后端不需要记住谁登录了，签名有效就信任。
-
-**中间件 (Middleware)**
-
-中间件是每个请求必经的"关卡"。认证中间件检查请求是否带有效 JWT，没带就返回 401。不用在每个路由函数里写认证逻辑。
-
-**数据库关系 (Relationship)**
-
-用户和行程之间是一对多关系（一个用户可有多个行程）。SQLAlchemy 通过 `relationship()` 定义，查询时用 `user.trips` 直接拿到该用户的所有行程。
-
-**依赖注入 (Dependency Injection)**
-
-FastAPI 用 `Depends()` 实现。`def get_db()` 返回数据库会话，路由函数写 `db: Session = Depends(get_db)` 就能自动获得数据库连接。测试时可替换 `get_db` 返回内存数据库。
-
-**SSE (Server-Sent Events)**
-
-Agent 生成行程可能需十几秒，用户不能干等。SSE 让服务端流式推送内容到前端：DeepSeek 每生成一段文字，就推送一段到前端显示（ChatGPT 逐字输出效果）。
-
----
-
-## 5. 目录结构详解
-
-### 5.1 项目根目录
+TripPlannerAgent 的核心流程——**感知 → 决策 → 执行 → 观察** 循环：
 
 ```
-trip-agent/
-├── backend/                    # FastAPI 后端服务
-├── frontend/                   # Next.js 15 前端应用
-├── docker-compose.yml          # 一键启动全栈
-├── .env.example                # 环境变量模板
-├── .gitignore
-└── README.md
+用户输入
+  │
+  ▼
+┌──────────────┐     LLM + response_format=json_object
+│ ① 意图分类   │─────────────────────────────────────►  intent: new_trip
+│ llm_classify │                                       / modify_trip
+│ _intent()    │  ▼ 关键词匹配 fallback                 / ask_question
+└──────────────┘
+  │
+  ├─ new_trip ──────────────────────────────────┐
+  │                                              ▼
+  │                              ┌──────────────────────────┐
+  │                              │ ② 工具调用循环            │
+  │                              │ _generate_plan()          │
+  │                              │                          │
+  │                              │ while tool_round < 10:   │
+  │                              │   LLM.chat(tools=...)    │
+  │                              │   if no tool_calls:      │
+  │                              │     → 流式输出 退出       │
+  │                              │   for each tool_call:    │
+  │                              │     result = execute()   │
+  │                              │     append tool msg      │
+  │                              │   tool_round++           │
+  │                              │                          │
+  │                              │ tool_round >= 10:        │
+  │                              │   → 强制流式输出（兜底）  │
+  │                              └──────────────────────────┘
+  │
+  ├─ modify_trip ───────────────┐
+  │                              ▼
+  │               ┌─────────────────────────┐
+  │               │ ③ 反馈式调整             │
+  │               │ _apply_feedback()        │
+  │               │ 当前行程 JSON + 用户要求  │
+  │               │ → 局部修改 → 流式输出    │
+  │               └─────────────────────────┘
+  │
+  └─ ask_question ──────────────┐
+                                 ▼
+                  ┌─────────────────────────┐
+                  │ ④ 闲聊分流               │
+                  │ gossip()                  │
+                  │ 不涉及行程，自由对话      │
+                  └─────────────────────────┘
+  │
+  ▼
+┌──────────────┐
+│ ⑤ 结果处理   │
+│ 分离文本/JSON │
+│ plan_data 落库│
+│ 保存 AI 回复  │
+└──────────────┘
 ```
 
-### 5.2 后端目录 (`backend/`)
+**关键安全机制**：
+- **工具调用上限**：最多 10 轮调用，防止无限循环消耗 token
+- **LLM 意图分类 fallback**：LLM 调用失败时降级到关键词匹配，保证服务可用
+- **JSON 解析三级回退**：````json` 标记 → ```` ` 标记 → 正则匹配裸 JSON
 
-```
-backend/
-├── app/
-│   ├── __init__.py
-│   ├── main.py                 # FastAPI 应用工厂，注册路由、中间件、生命周期事件
-│   ├── config.py               # 配置管理：从 .env 读取所有配置项到 Pydantic Settings
-│   │
-│   ├── utils/                   # 工具层 —— 通用函数和工具
-│   │   ├── __init__.py
-│   │   ├── security.py          # bcrypt 密码哈希与校验
-│   │   └── jwt.py               # JWT Token 创建与验证
-│   │
-│   ├── routers/                # 路由层 —— 只做请求解析和响应格式化
-│   │   ├── __init__.py
-│   │   ├── auth.py             # POST /api/auth/register, /api/auth/login
-│   │   ├── chat.py             # POST /api/chat  (SSE 流式响应)
-│   │   └── trips.py            # GET /api/trips, GET /api/trips/{id}, DELETE /api/trips/{id}
-│   │
-│   ├── agent/                  # Agent 编排层 —— 整个后端的核心
-│   │   ├── __init__.py
-│   │   ├── conversation.py     # ConversationManager：会话状态机、历史消息管理
-│   │   └── planner.py          # TripPlannerAgent：行程规划的核心 Agent 逻辑
-│   │
-│   ├── services/               # 服务层 —— 可替换的底层能力
-│   │   ├── __init__.py
-│   │   ├── llm_client.py       # DeepSeek API 封装（重试、超时、流式）
-│   │   └── prompt_builder.py   # System Prompt 模板 + 上下文拼接
-│   │
-│   │
-│   ├── crud/                   # CRUD 层 —— 数据库增删改查函数，与路由层解耦
-│   │   ├── __init__.py
-│   │   ├── user.py             # User 的 CRUD
-│   │   ├── trip.py             # Trip 的 CRUD
-│   │   └── message.py          # Message 的 CRUD
-│   │
-│   ├── models/                 # 数据层 —— SQLAlchemy ORM 实体
-│   │   ├── __init__.py
-│   │   ├── base.py             # declarative_base + 通用 mixin（id, created_at, updated_at）
-│   │   ├── user.py             # User 实体
-│   │   ├── trip.py             # Trip 实体（关联 User）
-│   │   └── message.py          # Message 实体（关联 Trip，存放对话历史）
-│   │
-│   ├── schemas/                # Pydantic 请求/响应模型（与 ORM 模型分离）
-│   │   ├── __init__.py
-│   │   ├── auth.py             # RegisterRequest, LoginRequest, TokenResponse
-│   │   ├── chat.py             # ChatRequest, ChatStreamChunk
-│   │   └── trip.py             # TripResponse, TripCreate
-│   │
-│   ├── middleware/              # FastAPI 中间件
-│   │   ├── __init__.py
-│   │   └── auth_middleware.py  # JWT 验证中间件，提取 current_user 注入请求上下文
-│   │
-│   └── db/
-│       ├── __init__.py
-│       └── session.py          # SQLAlchemy async engine + session factory + get_db 依赖
-│
-├── tests/                      # 后端测试
-│   ├── __init__.py
-│   ├── test_auth.py
-│   ├── test_chat.py
-│   └── test_planner.py
-│
-├── alembic/                    # 数据库迁移（v1.0 可选，先用 SQLAlchemy create_all）
-├── alembic.ini
-├── requirements.txt
-├── Dockerfile
-└── .env                        # 实际配置（gitignore）
-```
+### 4.2 工具系统：可插拔注册中心
 
-**为什么路由和 Agent 分离**：Agent 逻辑（conversation.py + planner.py）独立于 HTTP——理论上可抽出来换 CLI 入口或 WebSocket 入口，核心逻辑不动。路由层只是薄薄的适配层。
+工具系统是本项目的架构亮点——每个工具是独立的 `.py` 文件，通过统一的 `Tool` dataclass 定义，注册到中心后自动转换为 OpenAI Function Calling 格式。
 
-### 5.3 前端目录 (`frontend/`)
+**设计演进**：
 
-```
-frontend/
-├── app/                        # Next.js App Router 约定目录
-│   ├── layout.tsx              # 根布局（html, body, 全局 Provider）
-│   ├── page.tsx                # 首页（未登录 → 引导页，已登录 → 聊天页）
-│   ├── login/page.tsx          # 登录页
-│   ├── register/page.tsx       # 注册页
-│   ├── trips/page.tsx          # 历史行程列表
-│   ├── trips/[id]/page.tsx     # 单个行程详情
-│   └── globals.css             # Tailwind + 全局样式
-│
-├── components/                 # React 组件
-│   ├── chat/
-│   │   ├── ChatContainer.tsx   # 聊天主容器（消息列表 + 输入框）
-│   │   ├── MessageBubble.tsx   # 单条消息气泡（区分用户/Agent）
-│   │   ├── ChatInput.tsx       # 输入框
-│   │   └── StreamingText.tsx   # SSE 流式文本逐字渲染组件
-│   ├── trip/
-│   │   ├── TripCard.tsx        # 行程摘要卡片
-│   │   └── TripDetail.tsx      # 行程详情（每日景点、交通、用餐）
-│   ├── auth/
-│   │   └── AuthForm.tsx        # 登录/注册表单（复用组件）
-│   └── ui/                     # 通用 UI 组件
-│       ├── Button.tsx
-│       ├── Card.tsx
-│       └── Loading.tsx
-│
-├── lib/
-│   └── api.ts                  # FastAPI 请求封装（fetch + JWT 注入）
-│
-├── hooks/                      # 自定义 React Hooks
-│   ├── useChat.ts              # 聊天核心 hook：发消息、接收 SSE 流、消息列表状态
-│   └── useAuth.ts              # 认证 hook：登录/注册/登出/获取当前用户
-│
-├── types/
-│   └── index.ts                # User, Trip, Message, ChatResponse 等类型
-│
-├── public/
-├── next.config.ts
-├── tailwind.config.ts
-├── tsconfig.json
-├── package.json
-├── Dockerfile
-└── .env.local                  # 前端环境变量（后端 API 地址）
-```
-
-部署通信：前端在浏览器端通过 `fetch()` 直连后端 API（CORS 白名单），Docker Compose 将二者放在同一网络内。
-
----
-
-## 6. 模块设计
-
-### 6.1 认证模块 (`routers/auth.py` + `middleware/auth_middleware.py`)
-
-**模块职责**：处理用户注册、登录，为受保护接口提供 JWT 身份验证。
-
-**对外接口**：
-
-| 端点 | 方法 | 说明 |
+| 版本 | 方案 | 问题 |
 |------|------|------|
-| `/api/auth/register` | POST | 注册新用户，接收 username + password，返回 UserResponse |
-| `/api/auth/login` | POST | 验证凭据，返回 `{ access_token, token_type }` |
-| `get_current_user` | FastAPI Depends | 中间件函数，解析 JWT 返回 User 对象 |
+| v0.2.0 | 硬编码字典 | 每个工具写一套重复的定义结构 |
+| v0.4.0 | Tool dataclass + 注册中心 | `Tool.openai_schema()` 统一生成，`execute_tool()` 统一调度 |
 
-**依赖关系**：依赖 `models/user.py`、`schemas/auth.py`；被 `routers/chat.py`、`routers/trips.py` 依赖（通过 `get_current_user`）。
+**`Tool` 数据类**（`backend/app/tools/base.py`）：
 
-**关键实现细节**：密码用 `passlib[bcrypt]` 哈希存储；JWT 使用 `python-jose`，签名密钥从 `config.py` 的 `SECRET_KEY` 读取，默认 7 天过期；`get_current_user` 用 `Depends` 注入保护路由。
+```python
+@dataclass
+class Tool:
+    name: str                              # 工具唯一标识
+    description: str                       # LLM 选择工具时参考
+    parameters: dict[str, Any]             # JSON Schema properties
+    required: list[str]                    # 必填参数列表
+    handler: Callable[..., Awaitable[str]] # 异步执行函数
 
-### 6.2 Agent 编排层
-
-#### 6.2.1 ConversationManager (`agent/conversation.py`)
-
-**模块职责**：管理一次行程规划对话的完整生命周期——创建会话、追踪状态、维护消息历史、控制上下文窗口大小。
-
-**对外接口**：
-
-| 方法 | 说明 |
-|------|------|
-| `create_conversation(trip_id, user_id)` | 创建新会话，关联到某个 Trip |
-| `add_message(role, content)` | 追加一条消息到会话历史 |
-| `get_context(max_tokens)` | 返回拼接后的上下文字符串，自动裁剪到 max_tokens 以内 |
-| `get_state()` | 返回当前会话状态（idle / planning / confirming / done） |
-
-**关键实现细节**：会话状态机用简单的 if-elif 实现，四个状态按顺序流转；上下文窗口管理从消息历史尾部向前截取，保证不截断单轮对话；每条消息即时写入数据库，避免内存 OOM。
-
-#### 6.2.2 TripPlannerAgent (`agent/planner.py`)
-
-**模块职责**：封装行程规划 Agent 的核心决策逻辑——理解用户意图、构建 Prompt、调用 LLM、解析行程结果、处理用户反馈。
-
-**对外接口**：
-
-| 方法 | 说明 |
-|------|------|
-| `handle_message(user_input, conversation)` | Agent 主入口：接收用户消息，返回 Agent 回复（流式） |
-| `_classify_intent(user_input)` | 分类用户意图：new_trip / modify_trip / ask_question / unclear |
-| `_generate_plan(conversation)` | 构造 Prompt 调用 LLM 生成行程 |
-| `_apply_feedback(feedback, current_plan, conversation)` | 根据用户反馈调整现有行程 |
-
-**关键实现细节**：意图分类用关键词匹配 + 上下文判断（v1.0 规则，省一次 LLM 调用）；行程生成采用"单次生成 + 迭代修正"策略；结构化输出通过 System Prompt 要求 JSON + `response_format: json_object` 保证；流式输出返回 `AsyncGenerator[str]`，边生成边 yield。
-
-### 6.3 服务层
-
-#### 6.3.1 LLMClient (`services/llm_client.py`)
-
-**模块职责**：封装 DeepSeek API 调用细节，对上层提供统一的流式/非流式调用接口。
-
-**对外接口**：
-
-| 方法 | 说明 |
-|------|------|
-| `chat(messages, stream=False)` | 非流式调用，返回完整响应文本 |
-| `chat_stream(messages)` | 流式调用，返回 `AsyncGenerator[str]` |
-| `count_tokens(text)` | 估算 Token 数 |
-
-**关键实现细节**：网络错误重试 3 次，指数退避（1s/2s/4s）；首次请求 60s 超时；Token 计数优先用 tiktoken，fallback 用 `len(text) // 2`。
-
-#### 6.3.2 PromptBuilder (`services/prompt_builder.py`)
-
-**模块职责**：管理 Prompt 模板，根据会话上下文动态拼接 messages 数组。
-
-**对外接口**：
-
-| 方法 | 说明 |
-|------|------|
-| `build_system_prompt()` | 返回 System Prompt（静态模板） |
-| `build_messages(conversation_context, user_input)` | 拼接 messages 数组 |
-
-**关键实现细节**：System Prompt 存放在 `services/prompts/` 目录下为独立 `.txt` 文件；拼接时自动检查 Token 数，超出限制时裁剪最早的消息（保留 System Prompt 始终在首位）。
-
-### 6.4 数据层 (`models/`)
-
-三个核心实体及其关系：
-
-```mermaid
-erDiagram
-    User ||--o{ Trip : "创建"
-    Trip ||--o{ Message : "包含"
-
-    User {
-        uuid id PK
-        string username "唯一"
-        string hashed_password "bcrypt"
-        datetime created_at
-    }
-
-    Trip {
-        uuid id PK
-        uuid user_id FK
-        string title "如'成都三日美食之旅'"
-        json plan_data "LLM 生成的完整行程 JSON"
-        string status "draft / confirmed"
-        datetime created_at
-        datetime updated_at
-    }
-
-    Message {
-        uuid id PK
-        uuid trip_id FK
-        string role "user / assistant / system"
-        text content
-        datetime created_at
-    }
+    def openai_schema(self) -> dict:
+        """一键生成 OpenAI function-calling 兼容格式"""
 ```
 
-**关键设计考量**：`plan_data` 用 JSON 字段——行程结构复杂，JSON 比拆多张关系表更灵活，LLM 输出直接存，字段变化只改 Prompt 不改 schema；密码不存明文，bcrypt 哈希存储。
+**当前工具清单**：
 
-### 6.5 前端简化方案
+| 工具 | 文件 | 能力 | 外部依赖 |
+|------|------|------|---------|
+| `weather` | `weather.py` | 查询任意城市实时天气/温度/湿度/风力 | OpenWeatherMap API |
+| `budget_calculate` | `budget_calculate.py` | 根据天数/人数/档次（经济/舒适/豪华）估算旅行预算分项 | 纯规则引擎 |
+| `transport_guiding` | `transport_guiding.py` | 跨城交通方案：距离/耗时/方式推荐/费用 | 高德地图 API + Haversine 距离降级 |
 
-前端直连后端：`lib/api.ts` 封装 `fetch()`，每次请求在 Header 附带 JWT；后端 FastAPI 配置 CORS；JWT 存在 `localStorage`。不做 BFF 层，不做 Nginx 反代。
+**架构价值**：要加新工具（如景点查询），只需在 `tools/` 下新建文件、定义 `Tool` 实例、在 `ALL_TOOLS` 列表追加一行——`__init__.py`、`planner.py` 不需要任何改动。这是面试中最容易展开讲的扩展性设计。
+
+### 4.3 中间件管道
+
+请求经过两层中间件的顺序处理：
+
+```
+Request → CORS Middleware → JWT Auth Middleware → Router → ...
+
+                          ┌ 白名单放行：
+                          │ /, /docs, /redoc,
+                          │ /openapi.json,
+                          │ /api/auth/register,
+                          │ /api/auth/login
+                          │
+                          └ 其他路径：
+                              ① 提取 Authorization header
+                              ② 校验 Bearer 格式
+                              ③ JWT decode + 签名验证
+                              ④ 提取 user_id → request.state.user_id
+                              ⑤ 失败 → 401 JSONResponse
+```
+
+**设计考量**：JWT 验证放在中间件而非 `Depends()` 中，因为：
+- 鉴权是横切关注点，应该独立于业务逻辑
+- 中间件在路由执行前拦截，无效请求不进入业务层
+- `get_current_user` 只需从 `request.state.user_id` 取用户，不再重复解析 token
+
+### 4.4 上下文管理
+
+`ConversationManager` 管理每次对话的消息历史和状态机：
+
+```
+状态流转：
+  IDLE → PLANNING → CONFIRMING → DONE
+
+上下文窗口（Token 感知裁剪）：
+  全部消息 → 按时间降序排列 → 从尾部向前截取
+  → 累计 token < max_tokens → 返回裁剪后的消息列表
+```
+
+每个消息即时写入数据库，同时缓存在内存 `history_cache` 中。上下文裁剪只删最早的、保留最新的——保证最近的对话轮次始终完整。
 
 ---
 
-## 7. 开发分阶段路线
+## 5. 数据模型
 
-### 阶段 0：环境搭建 + 跑通骨架（预计 1-2 天）
+### 5.1 ER 图
 
-**目标**：前后端都能启动，能通信。
+```
+User (用户)
+  ├── id: int (PK)
+  ├── username: str (unique)
+  ├── hashed_password: str (bcrypt)
+  └── created_at: datetime
 
-做这些事：
-1. `backend/` 下创建 FastAPI 空应用，`/api/health` 端点
-2. `frontend/` 下 `npx create-next-app@latest`
-3. 前端按钮点击 fetch `localhost:8000/api/health`，显示结果
+     │ 1:N
+     ▼
+Trip (行程)
+  ├── id: int (PK)
+  ├── user_id: int (FK → User)
+  ├── title: str
+  ├── plan_data: JSON (LLM 生成的结构化行程)
+  ├── status: "draft" | "confirmed"
+  ├── created_at: datetime
+  └── updated_at: datetime
 
-**学什么**：FastAPI 基本路由、Next.js 项目结构、CORS 配置
-
-### 阶段 1：用户注册/登录（预计 2-3 天）
-
-**目标**：能注册账号、登录拿到 JWT、用 JWT 访问受保护接口。
-
-做这些事：
-1. `models/user.py`：User 实体 + bcrypt
-2. `routers/auth.py`：register + login
-3. `middleware/auth_middleware.py`：JWT 验证
-4. `/api/me` 端点验证认证链路
-5. 前端注册页、登录页
-
-**学什么**：JWT 认证全流程、bcrypt、SQLAlchemy CRUD、FastAPI Depends 注入、localStorage
-
-### 阶段 2：调用 DeepSeek 生成行程（预计 2-3 天）
-
-**目标**：后端能向 DeepSeek 发请求，拿到行程 JSON 并解析。
-
-做这些事：
-1. `services/llm_client.py`：封装 DeepSeek 调用（非流式）
-2. `services/prompt_builder.py`：System Prompt 模板
-3. `/api/test-plan` 测试端点
-4. 测试输入"北京三日游"，验证返回的 JSON
-
-**学什么**：LLM API 调用、Prompt Engineering 基础、JSON 解析与错误处理
-
-**注意**：此阶段不涉及 Agent、多轮对话、流式输出。
-
-### 阶段 3：对话式 Agent（预计 3-4 天）
-
-**目标**：把阶段 2 的单次调用升级为多轮对话 Agent。
-
-做这些事：
-1. `models/trip.py` + `models/message.py`
-2. `agent/conversation.py`：ConversationManager
-3. `agent/planner.py`：TripPlannerAgent
-4. `routers/chat.py`：POST /api/chat（SSE 流式）
-5. 前端聊天 UI
-
-**学什么**：Agent 感知-决策-执行循环、多轮对话上下文管理、SSE 流式输出、React 聊天 UI
-
-### 阶段 4：行程管理（预计 1-2 天）
-
-**目标**：能查看、删除历史行程。
-
-做这些事：
-1. `routers/trips.py`：GET 列表、详情、DELETE
-2. 前端 `/trips` 页面
-
-**学什么**：RESTful API 设计、Next.js 动态路由
-
-### 阶段 5：打磨 + 部署（预计 1-2 天）
-
-**目标**：项目能跑在 Docker 里。
-
-做这些事：
-1. 前端 UI 打磨（Tailwind）
-2. `docker-compose.yml`：backend + frontend + MySQL
-3. `.env` 配置整理
-
-**学什么**：Docker Compose 多服务编排
-
-> 总时间估算：约 9-14 天（每天 3-4 小时）。
-
----
-
-## 8. 核心流程
-
-### 8.1 创建新行程（首次对话）
-
-```mermaid
-sequenceDiagram
-    actor U as 用户
-    participant FE as Next.js 前端
-    participant R as FastAPI<br/>routers/chat.py
-    participant CM as ConversationManager
-    participant TPA as TripPlannerAgent
-    participant PB as PromptBuilder
-    participant LLM as LLMClient
-    participant DB as 数据库
-    participant DS as DeepSeek API
-
-    U->>FE: 输入"我想去成都玩三天，预算3000，喜欢美食"
-    FE->>R: POST /api/chat { message: "..." }
-    R->>R: JWT 中间件验证身份
-    R->>CM: create_conversation(trip_id, user_id)
-    CM->>DB: INSERT Trip(status=draft) + INSERT Message(role=user)
-    CM-->>R: conversation 对象
-
-    R->>TPA: handle_message(user_input, conversation)
-    TPA->>TPA: _classify_intent() → "new_trip"
-    TPA->>CM: get_context(max_tokens=6000)
-    CM-->>TPA: 拼接后的消息历史
-    TPA->>PB: build_messages(context, user_input)
-    PB-->>TPA: [{role: "system", ...}, {role: "user", ...}]
-
-    TPA->>LLM: chat_stream(messages)
-    LLM->>DS: POST /v1/chat/completions (stream=true)
-    DS-->>LLM: data: {"delta": "第一天..."}
-    LLM-->>TPA: AsyncGenerator[chunk]
-
-    loop 流式推送
-        TPA-->>R: yield chunk
-        R-->>FE: SSE data: chunk
-        FE->>FE: StreamingText 逐字渲染
-    end
-
-    TPA->>DB: UPDATE Trip(plan_data=json, title="成都三日美食之旅")
-    TPA->>CM: add_message(role="assistant", content=完整回复)
-    CM->>DB: INSERT Message(role=assistant)
-    TPA-->>R: [流结束]
-    R-->>FE: SSE event: done
-    FE->>FE: 渲染行程卡片
+     │ 1:N
+     ▼
+Message (消息)
+  ├── id: int (PK)
+  ├── trip_id: int (FK → Trip)
+  ├── role: "user" | "assistant" | "system"
+  ├── content: text
+  └── created_at: datetime
 ```
 
-流程要点：意图分类→上下文组装→LLM 流式生成→即时写库。流式推送让用户看到逐字输出而非干等。即时写库保证刷新页面不丢数据。
-
-### 8.2 用户反馈调整行程
-
-```mermaid
-sequenceDiagram
-    actor U as 用户
-    participant FE as Next.js 前端
-    participant R as FastAPI<br/>routers/chat.py
-    participant CM as ConversationManager
-    participant TPA as TripPlannerAgent
-    participant DB as 数据库
-
-    U->>FE: "第二天太赶了，去掉杜甫草堂"
-    FE->>R: POST /api/chat { message: "...", trip_id: "xxx" }
-    R->>R: JWT 中间件验证 + 校验 trip 属于当前用户
-    R->>CM: 加载已有 conversation (通过 trip_id)
-    CM->>DB: SELECT messages WHERE trip_id=xxx ORDER BY created_at
-    CM-->>R: conversation (含历史消息 + 已有 plan_data)
-
-    R->>TPA: handle_message(user_input, conversation)
-    TPA->>TPA: _classify_intent() → "modify_trip"
-    TPA->>DB: SELECT plan_data FROM trips WHERE id=xxx
-    DB-->>TPA: 当前完整行程 JSON
-    TPA->>TPA: _apply_feedback("去掉杜甫草堂", current_plan)
-
-    Note over TPA: 将反馈 + 当前行程 JSON + 历史对话<br/>拼接为 Prompt，要求 LLM 局部调整
-
-    TPA->>LLM: chat_stream(modified_messages)
-    LLM-->>TPA: 流式返回调整后的行程
-
-    loop 流式推送
-        TPA-->>R: yield chunk
-        R-->>FE: SSE data: chunk
-    end
-
-    TPA->>DB: UPDATE Trip(plan_data=新json, updated_at=now)
-    TPA->>CM: add_message(role="assistant", content=...)
-    TPA-->>R: [流结束]
-    R-->>FE: SSE event: done
-    FE->>FE: 更新行程卡片（原地替换旧内容）
-```
-
-流程要点：把"当前行程 JSON + 用户反馈 + 历史对话"三合一作为 Prompt 输入，指令 LLM 局部修改而非全新生成。
-
----
-
-## 9. 数据模型深入
-
-### 9.1 plan_data JSON 结构
+### 5.2 plan_data JSON 结构
 
 ```json
 {
@@ -578,8 +318,7 @@ sequenceDiagram
   "duration": 3,
   "budget": 3000,
   "style": ["美食", "人文"],
-  "overview": "三日行程涵盖成都市区经典景点...",
-
+  "overview": "三日行程涵盖...",
   "days": [
     {
       "day": 1,
@@ -604,156 +343,117 @@ sequenceDiagram
       ]
     }
   ],
-
-  "overall_tips": "6月成都多雨，建议带伞；地铁覆盖主要景点，无需租车"
+  "overall_tips": "6月成都多雨，建议带伞..."
 }
 ```
 
-**字段考量**：`transport_from_previous` 让行程有"路径感"；`theme` 每日主题标签，让行程有叙事节奏；`cost_yuan` 门票费用，v2.0 与 budget 对比做预算摘要。
+### 设计决策：JSON 字段 vs 关系表
 
-### 9.2 为什么不用多张关系表
+| 方案 | 优点 | 缺点 | 本项目选择 |
+|------|------|------|-----------|
+| **JSON 字段** | LLM 产出直接存，零转换；字段弹性变化不改 schema | 不支持 SQL 级联查询 | ✅ 采用 |
+| **多张关系表** | 支持复杂 SQL 分析 | LLM JSON → 多条 INSERT 的映射逻辑复杂且脆弱 | ❌ |
 
-| 方案 | 优点 | 缺点 |
-|------|------|------|
-| JSON 字段（本项目采用） | LLM 产出直接存，零转换；前端直接渲染；加字段不改数据库 | 不能 SQL 查询"包含宽窄巷子的所有行程" |
-| 拆多张关系表 | 支持复杂 SQL 查询和分析 | 需要把 LLM 的 JSON 拆解为多条 INSERT；字段变更要改表结构 + 代码 |
-
-当前项目是行程生成工具，不是数据分析平台——JSON 字段是合适的选择。
+本项目是行程生成工具而非数据分析平台——JSON 字段是正确的选择。
 
 ---
 
-## 10. 配置与部署
-
-### 10.1 环境变量清单
-
-**后端 (`backend/.env`)**：
-
-| 变量 | 说明 | 示例值 |
-|------|------|--------|
-| `DATABASE_URL` | 数据库连接串 | `sqlite+aiosqlite:///./trip_agent.db` (开发) / `mysql+asyncmy://user:pass@mysql:3306/trip_agent` (生产) |
-| `SECRET_KEY` | JWT 签名密钥 | `openssl rand -hex 32` 生成 |
-| `DEEPSEEK_API_KEY` | DeepSeek API Key | `sk-xxx` |
-| `DEEPSEEK_BASE_URL` | API 地址 | `https://api.deepseek.com` |
-| `DEEPSEEK_MODEL` | 模型名 | `deepseek-v4-flash` |
-| `MAX_CONTEXT_TOKENS` | 上下文窗口上限 | `6000` |
-| `CORS_ORIGINS` | 允许的前端域名 | `http://localhost:3000` |
-
-**前端 (`frontend/.env.local`)**：
-
-| 变量 | 说明 | 示例值 |
-|------|------|--------|
-| `NEXT_PUBLIC_API_URL` | 后端地址 | `http://localhost:8000` |
-
-### 10.2 部署拓扑
-
-```mermaid
-graph LR
-    subgraph "Docker Compose"
-        A["Next.js 前端<br/>port 3000"]
-        B["FastAPI 后端<br/>port 8000"]
-        C[("MySQL 8.0<br/>port 3306")]
-    end
-
-    D["用户浏览器"] -->|":3000"| A
-    A -->|":8000"| B
-    B -->|":3306"| C
-```
-
-`docker-compose.yml` 结构：
-
-```yaml
-services:
-  backend:
-    build: ./backend
-    ports: [ "8000:8000" ]
-    env_file: .env
-    depends_on: [ mysql ]
-
-  frontend:
-    build: ./frontend
-    ports: [ "3000:3000" ]
-    environment:
-      - NEXT_PUBLIC_API_URL=http://backend:8000
-
-  mysql:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: trip_agent
-    volumes: [ mysql_data:/var/lib/mysql ]
-
-volumes:
-  mysql_data:
-```
-
----
-
-## 11. 扩展与二次开发指南
-
-### 11.1 接入一个新的 LLM
-
-**步骤**：
-1. 确认新模型是否兼容 OpenAI 接口格式。如果是，只改 `.env` 中的 `DEEPSEEK_BASE_URL` 和 `DEEPSEEK_MODEL`
-2. 如果接口格式不同，在 `LLMClient` 中新增适配方法
-3. 检查 `response_format: json_object` 新模型是否支持
-
-**需修改的文件**：`llm_client.py`、`.env`、`prompt_builder.py`（必要时）
-
-### 11.2 新增工具调用能力（v2.0）
-
-当想让 Agent 能查询天气、搜索景点、比对机票时，引入 Function Calling。
-
-**步骤**：
-1. 在 `agent/` 下新增 `tools/` 目录，每个工具一个文件
-2. 每个工具定义遵循 OpenAI Function Calling 格式：name、description、parameters JSON Schema、execute 函数
-3. `TripPlannerAgent.handle_message()` 中增加函数调用循环：调用 LLM → 检查 `tool_calls` → 执行工具 → 追加结果 → 再次调用 LLM → 直到无工具调用
-4. `PromptBuilder` 中声明可用工具列表
-
-**注意**：工具调用会让每次对话的 LLM 调用次数从 1 次变成 N 次，响应时间显著增加。建议先用 v1.0 验证体验再决定。
-
----
-
-## 12. 设计决策记录
+## 6. 关键技术决策
 
 > **决策 1**：Agent 编排层与路由层分离
-> **备选方案**：将 Agent 逻辑直接写在路由函数中
-> **选择理由**：Agent 逻辑独立于 HTTP 协议——换入口（CLI、WebSocket、Discord Bot）可复用相同代码
-> **可能影响**：文件数增加。好处是可直接 import `planner.py` 做命令行测试
+> **选择**：`planner.py` 不依赖 FastAPI Request 对象，通过 Python 原生类型交互
+> **收益**：Agent 可独立测试（import 后直接调方法），可换入口（CLI/WebSocket/Discord Bot）
 
-> **决策 2**：意图分类用规则匹配而非 LLM
-> **备选方案**：每次用户消息都发给 LLM 做意图分类
-> **选择理由**：v1.0 只有 4 种意图，关键词匹配覆盖 90% 场景，省一次 LLM 调用
-> **可能影响**：规则匹配有边界情况，极少数误判不影响核心体验
+> **决策 2**：意图分类：LLM + 规则双通道
+> **选择**：优先 LLM 分类（`response_format: json_object`, temperature=0），失败时降级到关键词匹配
+> **收益**：LLM 处理模糊表达（"有点贵"→modify_trip），规则兜底保证可用性，只多一次轻量 API 调用
 
-> **决策 3**：行程数据用 JSON 字段存储而非关系表
-> **备选方案**：拆成 trips/days/attractions/meals 四张关系表
-> **选择理由**：LLM 输出天然是 JSON，字段变化只改 Prompt 不改 schema；MVP 不需要聚合分析
-> **可能影响**：未来需统计"热门目的地"时 MySQL JSON 查询性能差，可加 ETL 任务补充
+> **决策 3**：工具调用循环上限 = 10 轮
+> **选择**：硬上限 + 日志告警 + 强制流式输出兜底
+> **收益**：防止模型陷入"调用→不满意→再调用"的死循环，避免单次会话消耗数千 token
 
-> **决策 4**：前端直连后端，不做 BFF 层
-> **备选方案**：Next.js API Routes 转发或 Nginx 反向代理
-> **选择理由**：v1.0 用户只有你一个，CORS + localStorage JWT 足够，少一层转发少一个出错环节
-> **可能影响**：JWT 在 localStorage 有 XSS 风险，未来上线给他人使用时可迁移到 httpOnly cookie + Nginx
+> **决策 4**：JWT 验证放中间件，不放 Depends
+> **选择**：`jwt_middleware` 在路由前拦截，`get_current_user` 从 `request.state` 读取
+> **收益**：鉴权横切逻辑独立；无效请求不进入业务层；Depends 链更简洁
 
-> **决策 5**：开发 SQLite，生产 MySQL
-> **备选方案**：全程 MySQL 或全程 SQLite
-> **选择理由**：SQLite 开发零配置，`uvicorn` 直接能跑。SQLAlchemy 抽象了差异，切换只改一行连接串
-> **可能影响**：需确保所有数据库操作都用 ORM，不写原生 SQL
+> **决策 5**：工具无状态，按需调用
+> **选择**：每个工具只接收参数、返回字符串，不持有对话上下文
+> **收益**：工具函数可独立测试、独立替换；LLM 通过 tool result 感知上下文，不需要工具侧维护状态
+
+> **决策 6**：SQLite 开发，MySQL 生产
+> **选择**：SQLAlchemy async 抽象层 + Docker Compose 切换
+> **收益**：开发零配置；所有操作走 ORM 保证可移植性
 
 ---
 
-## 13. 待确认事项
+## 7. 前端设计系统
 
-- [ ] `plan_data` JSON 的最终字段：需在 Prompt Engineering 阶段迭代调整
-- [ ] 前端 UI 的具体样式：建议阶段 5 根据实际体验决定
-- [ ] 是否引入 shadcn/ui：如果阶段 3 手写聊天 UI 太耗时再引入
-- [ ] 流式输出的实际延迟：需在阶段 3 实测后决定是否需要 loading 动画
+v0.4.0 建立了完整的 Design Token 体系，彻底摆脱组件库默认风格：
+
+| 令牌 | 值 | 用途 |
+|------|-----|------|
+| `--color-primary` | `#f97316` (Orange 500) | 主操作按钮、强调色 |
+| `--color-accent` | `#0ea5e9` (Sky 500) | 辅助强调、链接 |
+| `--color-surface` | `#fafaf9` (Stone 50) | 卡片底色 |
+| `--color-text` | `#1c1917` (Stone 900) | 正文 |
+| 字体 | Noto Sans SC + Noto Serif SC | Google Fonts 中文字体 |
+| 背景 | 暖色四段渐变 | 奶油→桃子→粉紫→天空蓝 |
+
+**UI 组件体系**：Button（4 变体 + Loading 态）→ Card（3 风格 + 3 内边距）→ Loading（自定义文本）→ Chat（空状态引导页 + 流式逐字渲染）→ Trip（状态标签 + 指标行 + Glass 卡片）
+
+---
+
+## 8. 开发路线
+
+### 已完成 (v0.1.0 – v0.4.0)
+
+| 版本 | 里程碑 |
+|------|--------|
+| v0.1.0 | 项目骨架、用户认证（JWT + bcrypt）、ORM 建表 |
+| v0.2.0 | DeepSeek 集成、Tool Calling 机制、天气预报工具 |
+| v0.3.0 | LLM 意图分类、闲聊分流、工具调用循环防护 |
+| v0.4.0 | 前端设计系统重构、后端工具注册中心、预算计算工具、交通规划工具、JWT 中间件 |
+
+### 进行中 / 规划中 (v0.5.0 → v1.0.0)
+
+| 版本 | 计划 | 技术关键词 |
+|------|------|-----------|
+| **v0.5.0** | Redis 集成（Token 黑名单 + 速率限制）| `redis[hiredis]`、滑动窗口、中间件 |
+| **v0.6.0** | Agent 记忆系统 | 偏好提取、跨会话持久化、向量嵌入 |
+| **v0.7.0** | ReAct 推理循环 + 反思机制 | Thought-Action-Observation、自我纠错 |
+| **v0.8.0** | 多 Agent 协作架构 | Orchestrator + Research/Planner/Reviewer |
+| **v0.9.0** | 景点查询工具 + POI 搜索 | 高德 POI API、地理围栏 |
+| **v1.0.0** | 测试覆盖、E2E、Docker 生产部署 | pytest、Playwright、CI/CD |
+
+---
+
+## 9. 安全设计
+
+| 维度 | 方案 |
+|------|------|
+| **密码存储** | bcrypt (passlib)，不存明文 |
+| **传输认证** | JWT (HS256)，7 天过期，Authorization: Bearer 头传递 |
+| **接口保护** | 全局 JWT 中间件，白名单放行公开路径，其余拦截 |
+| **密码时效** | 计划引入 refresh token + Redis 黑名单实现主动吊销 |
+| **速率限制** | 计划基于 Redis 计数器 + 滑动窗口 |
+
+---
+
+## 10. 部署
+
+```yaml
+# docker-compose.yml
+services:
+  backend:    # FastAPI + uvicorn, port 8000
+  frontend:   # Next.js (standalone), port 3000
+  mysql:      # MySQL 8.0, port 3306 (生产)
+  redis:      # Redis 7 (v0.5.0 引入)
+```
+
+开发环境：`uvicorn --reload` + `npm run dev`，SQLite 文件数据库，零外部依赖即可运行。
 
 ---
 
 > **文档元信息**
-> 生成日期：2026-07-10
-> 生成方式：基于项目描述
-> 代码版本/提交：N/A（构思阶段）
-> 项目类型：Web 应用（前后端分离）
-> 写作模式：交互模式
+> 版本：v0.4.0 | 更新日期：2026-07-30 | 代码版本：2631511
+> 对应 API 文档：旅游助手AgentAPI接口规范.md
