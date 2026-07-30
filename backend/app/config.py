@@ -1,8 +1,24 @@
 from pathlib import Path
+
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
 # 创建一个能从.env文件中读取环境变量的类，方便JWT，LLM的API_KEY等的存放
 class Settings(BaseSettings):
+
+    @model_validator(mode="after")
+    def _check_required_keys(self):
+        critical = [
+            "SECRET_KEY",
+            "DEEPSEEK_API_KEY",
+            "DEEPSEEK_BASE_URL",
+        ]
+        missing = [f for f in critical if "change-me" in getattr(self, f, "")]
+        if missing:
+            raise ValueError(f"请在.env中配置：{', '.join(missing)}")
+        return self
+
+
     # JWT
     SECRET_KEY: str = "change-me-to-a-secret-key"
 
@@ -16,6 +32,9 @@ class Settings(BaseSettings):
 
     # weather_tool
     WEATHER_API_KEY: str = "change-me-to-a-weather-api-key"
+
+    # transport_guiding
+    AMAP_API_KEY: str = "change-me-to-a-amap-api-key"
 
     # 超时粒度细化
     # LLM 超时（秒）

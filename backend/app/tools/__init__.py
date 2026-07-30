@@ -1,10 +1,12 @@
 from backend.app.tools.weather import weather_tool
 from backend.app.tools.budget_calculate import budget_calculate_tool
+from backend.app.tools.transport_guiding import transport_guiding_tool
 from backend.app.tools.base import Tool
 
 ALL_TOOLS : list = [
     weather_tool,
     budget_calculate_tool,
+    transport_guiding_tool,
 ]
 
 def get_tool_schema():

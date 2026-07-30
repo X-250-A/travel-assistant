@@ -12,6 +12,8 @@ import backend.app.models.user  # noqa: F401
 import backend.app.models.trip  # noqa: F401
 import backend.app.models.message  # noqa: F401
 
+from backend.app.middleware.auth_middleware import jwt_middleware
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,6 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
     # 不设 allow_credentials，因为用 Authorization header 传 token，不需要 cookie
 )
+
+# JWT 鉴权中间件 — 对所有非公开路径校验 token
+app.middleware("http")(jwt_middleware)
 
 app.include_router(auth.router)
 app.include_router(chat.router)

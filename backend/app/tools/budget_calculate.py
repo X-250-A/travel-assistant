@@ -47,6 +47,6 @@ budget_calculate_tool = Tool(
     name = "budget_calculate",
     description="根据旅行天数、人数和消费档次估算旅行预算总额及各分项费用",
     parameters=BUDGET_PARAMETERS,
-    required=["day", "people"],
+    required=["days", "people"],
     handler=budget_calculate
 )
