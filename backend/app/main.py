@@ -11,8 +11,12 @@ from backend.app.routers import auth, chat, trips
 import backend.app.models.user  # noqa: F401
 import backend.app.models.trip  # noqa: F401
 import backend.app.models.message  # noqa: F401
+from backend.app.db.redis import init_redis, close_redis
+
 
 from backend.app.middleware.auth_middleware import jwt_middleware
+
+
 
 
 @asynccontextmanager
@@ -20,10 +24,12 @@ async def lifespan(app: FastAPI):
     """启动时根据 ORM 定义自动建表"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    await init_redis()
     yield
+    await close_redis()
 
+app = FastAPI(title="旅游助手 Agent API", version="0.4.0", lifespan=lifespan)
 
-app = FastAPI(title="旅游助手 Agent API", version="0.1.0", lifespan=lifespan)
 
 
 app.add_middleware(

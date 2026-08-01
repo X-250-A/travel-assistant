@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.db.session import get_db
 from backend.app.crud import user
 from backend.app.schemas.auth import RegisterRequest, LoginRequest, UserResponse, TokenResponse
 from backend.app.utils.jwt import create_access_token
 from backend.app.routers.dependencies import get_current_user
+from backend.app.config import settings
+from backend.app.db.redis import get_redis
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -32,3 +34,18 @@ async def login(user_data: LoginRequest, db: AsyncSession = Depends(get_db)):
 @router.get("/me", response_model=UserResponse)
 async def me(current_user = Depends(get_current_user)):
     return current_user
+
+
+
+@router.post("/logout")
+async def logout(request : Request):
+    user_id = request.state.user_id
+    jti = request.state.jti
+
+    r = await get_redis(settings.REDIS_TOKEN_BLACKLIST_DB)
+    await r.sadd(f"blacklist:{user_id}", jti)
+    await r.expire(f"blacklist:{user_id}", settings.ACCESS_TOKEN_EXPIRE_MINUTES + 3600 )
+    await r.close()
+
+    return {"message": "logout_success"}
+

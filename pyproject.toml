@@ -15,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.14.2",
     "python-jose>=3.5.0",
     "python-multipart>=0.0.32",
+    "redis[hiredis]>=5.0",
     "sqlalchemy>=2.0",
     "tiktoken>=0.13.0",
     "uvicorn>=0.51.0",

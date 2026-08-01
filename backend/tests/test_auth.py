@@ -79,7 +79,8 @@ class TestMe:
 
     async def test_me_without_token(self, async_client: AsyncClient):
         resp = await async_client.get("/api/auth/me")
-        assert resp.status_code == 422  # Header 缺少 → 422
+        # 中间件优先于路由依赖拦截，缺 Authorization → 401（而非依赖层的 422）
+        assert resp.status_code == 401
 
     async def test_me_with_invalid_token(self, async_client: AsyncClient):
         resp = await async_client.get(

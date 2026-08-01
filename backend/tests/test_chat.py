@@ -173,12 +173,12 @@ class TestChatEndpoint:
         assert resp.status_code == 422
 
     async def test_chat_without_auth(self, async_client: AsyncClient):
-        """未认证 → 422（Header missing）"""
+        """未认证 → 中间件拦截返回 401"""
         resp = await async_client.post(
             "/api/chat",
             json={"message": "想去玩"},
         )
-        assert resp.status_code == 422
+        assert resp.status_code == 401
 
     async def test_chat_agent_error_yields_error_event(
         self, async_client: AsyncClient, auth_headers: str

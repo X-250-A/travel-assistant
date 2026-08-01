@@ -42,6 +42,14 @@ class Settings(BaseSettings):
     LLM_READ_TIMEOUT: float = 45.0  # 等待服务器响应的单次 read 间隔
     LLM_REQUEST_TIMEOUT: float = 90.0  # 整个 API 调用的总时长上限（传给 SDK）
 
+    REDIS_URL: str = "redis://localhost:6379/0"  # 默认开发地址
+    REDIS_TOKEN_BLACKLIST_DB: int = 1  # Token 黑名单用独立 DB
+    RATE_LIMIT_REQUESTS: int = 30  # 每分钟最大请求数
+    RATE_LIMIT_WINDOW: int = 60  # 滑动窗口（秒）
+
+    # token过期时间
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 小时
+
     model_config = {
         "env_file": str(Path(__file__).parent.parent.parent / ".env"),
         "env_file_encoding": "utf-8"

@@ -14,6 +14,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
+from unittest.mock import AsyncMock, patch
 
 # bcrypt 5.0 与 passlib 不兼容：
 #   1) bcrypt 5.0 移除了 __about__，passlib 靠它检测版本
@@ -50,6 +51,7 @@ from backend.app.config import settings  # noqa: E402
 from backend.app.main import app as fastapi_app  # noqa: E402
 from backend.app.models.base import Base  # noqa: E402
 from backend.app.db.session import get_db  # noqa: E402
+from backend.app.db.redis import get_redis  # noqa: E402
 
 # 显式导入所有模型，确保 Base.metadata 注册完整
 import backend.app.models.user  # noqa: E402, F401
@@ -120,6 +122,26 @@ async def async_client(db_session):
 # ═══════════════════════════════════════════════════════════════════════════
 # 认证辅助
 # ═══════════════════════════════════════════════════════════════════════════
+
+@pytest_asyncio.fixture(autouse=True)
+async def mock_redis():
+    """全局 mock Redis：中间件 / logout 依赖 get_redis，但测试环境不启动 Redis。
+
+    ASGITransport 不触发 lifespan，init_redis() 从未执行；若中间件真的
+    调用 get_redis() 会抛 RuntimeError。这里用 AsyncMock 替换 get_redis，
+    让 JWT 黑名单检查在测试中走通（默认 token 不在黑名单）。
+    """
+    mock_r = AsyncMock()
+    mock_r.sismember = AsyncMock(return_value=0)  # 不在黑名单
+    mock_r.sadd = AsyncMock(return_value=1)
+    mock_r.expire = AsyncMock(return_value=True)
+    # 两处使用点都是 `from ... import get_redis` 的模块级绑定，必须 patch 使用处
+    patch_targets = [
+        "backend.app.middleware.auth_middleware.get_redis",
+        "backend.app.routers.auth.get_redis",
+    ]
+    with patch(patch_targets[0], return_value=mock_r), patch(patch_targets[1], return_value=mock_r):
+        yield mock_r
 
 async def _register_and_login(client: AsyncClient, username: str, password: str) -> str:
     """注册用户并登录，返回 'Bearer <token>' 字符串"""
