@@ -1,121 +1,101 @@
-# Release v0.4.0 — "视觉重生" 🎨
+# Release v0.5.0 — "Redis 上云" 🚀
 
-> 2026-07-29 · 累计 6 commits 自 v0.3.0
+> 2026-08-02 · 累计 2 commits 自 v0.4.0
 
 ---
 
 ## 概述
 
-v0.4.0 是一次**视觉与架构双重重构**。前端全面焕新设计语言，摆脱组件库默认风格；后端工具系统从硬编码字典升级为可插拔的注册中心，并新增预算计算工具。
+v0.5.0 完成 **Redis 基础设施** 三件套：JWT Token 黑名单主动吊销、滑动窗口速率限制、天气查询缓存。安全与性能双升级，并配套前端登出真正调用后端接口。这是从"纯本地 SQLite 单机应用"迈向"带中间件与缓存的正式服务"的关键一步。
 
 ---
 
-## 前端 UI — 设计系统全面升级 ✨
+## 后端 — Redis 基础设施 🛡️
 
-### 设计令牌 (Design Tokens)
+### 1. Token 黑名单（主动吊销）
 
-彻底告别蓝/灰体系，建立暖色调旅行品牌色：
+JWT 签发时携带 `jti` / `iat` 字段；`POST /api/auth/logout` 将 `jti` 写入 Redis 黑名单（独立 DB 1），JWT 中间件每请求校验黑名单，登出即失效。
 
-| 令牌 | 色值 | 用途 |
-|------|------|------|
-| `--color-primary` | `#f97316` (Orange 500) | 主操作按钮、强调色 |
-| `--color-accent` | `#0ea5e9` (Sky 500) | 辅助强调、链接 |
-| `--color-surface` | `#fafaf9` (Stone 50) | 卡片底色 |
-| `--color-text` | `#1c1917` (Stone 900) | 正文 |
+| 组件 | 说明 |
+|---|---|
+| `db/redis.py` | Redis 连接池封装，`get_redis(db)` 支持多 DB |
+| `middleware/auth_middleware.py` | 黑名单校验，命中返回 **403**（修正自 401） |
+| `routers/auth.py` | 新增 `/logout` 接口，`jti` 加入黑名单并设过期 |
 
-- 字体切换为 **Noto Sans SC + Noto Serif SC**（Google Fonts），替换 Geist
-- 全局背景改为**暖色渐变**：奶油色 → 桃子色 → 粉紫色 → 天空蓝
-- 移除 dark mode，专注浅色体验
-- 新增 4 个 CSS 关键帧动画：`fadeInUp`、`fadeIn`、`slideInLeft`、`slideInRight`、`scaleIn`
+### 2. 滑动窗口速率限制
 
-### UI 组件升级
+新增 `ratelimit/core.py` — 基于 **Redis Sorted Set** 的滑动窗口限流：
 
-**Button** — 新增 `ghost`、`accent` 变体；主按钮改为渐变圆角（`orange→rose`），带阴影 + 点击缩放反馈；loading 状态带 SVG spinner
+```
+每次请求：
+  ① ZREMRANGEBYSCORE 删除窗口外的旧时间戳
+  ② ZADD 加入本次请求时间戳
+  ③ ZCARD 统计窗口内请求数
+  ④ 超出 limit → 429 拒绝；未超出 → 放行
+```
 
-**Card** — 新增 `variant` 属性（`default` / `glass` / `flat`），`padding` 可控（`sm` / `md` / `lg`），圆角从 `rounded-lg` 升级为 `rounded-2xl`
+- `ip_ratelimit` 依赖已接入 **register / login** 两接口，防批量注册与爆破登录
+- 限流 key 按 `IP + 路径` 隔离，各接口互不影响
+- 配置项：`RATE_LIMIT_REQUESTS`（默认 30 次/分）、`RATE_LIMIT_WINDOW`（默认 60 秒）
 
-**Loading** — 双层圆环旋转动画（外层浅色轨道 + 内层彩色旋转），支持自定义 `text`
+### 3. 天气查询缓存
 
-### 页面/组件视觉重写
+`tools/weather.py` 接入 Redis 缓存：
 
-- **ChatContainer**: 消息列表宽度约束 `max-w-4xl`，新增空状态引导页
-- **TripDetail**: 状态标签（✅已确认 / 📝草稿），旅程指标行（目的地/天数/预算），glass 风格卡片
-- **TripCard**: 悬停阴影、新配色标签
-- **AuthForm**: 配色与按钮风格统一
-- **ChatInput / MessageBubble / StreamingText**: 细节打磨
+- key 归一化（日期缺省时取今天），提高命中率
+- TTL = `WEATHER_CACHE_TTL`（1 小时）+ ±300s 随机抖动，**防雪崩**
+- 相同城市+日期的二次查询直接命中缓存，零外部 API 调用
 
-**影响范围**: 18 个前端文件，+1003 行 / -587 行
+### 4. 其他
+
+- `REDIS_URL` 默认值指向虚拟机 `192.168.126.128:6379`
+- 黑名单响应码 401 → 403（语义更准确：token 本身有效，但已被吊销）
 
 ---
 
-## 后端 — 工具系统重构 🔧
+## 前端 — 登出真实化 🖥️
 
-### 工具注册中心
+| 文件 | 变更 |
+|---|---|
+| `lib/api.ts` | `logOut()` 从"仅清 localStorage"改为真实调用 `POST /api/auth/logout` |
+| `hooks/useAuth.tsx` | `logout` 变为 async；`finally` 保证无论接口成败都清理本地 token |
 
-新增 `backend/app/tools/base.py` — `Tool` dataclass 统一工具定义：
+登出流程升级：**前端清 token + 后端黑名单吊销** 双保险，旧 token 即使泄露也无法再使用。
 
-```python
-@dataclass
-class Tool:
-    name: str
-    description: str
-    parameters: dict[str, Any]
-    required: list[str]
-    handler: Callable[..., Awaitable[str]] | None
-```
+---
 
-新增 `backend/app/tools/__init__.py` — 工具注册与调度：
+## 测试 ⚙️
 
-```python
-ALL_TOOLS: list = [weather_tool, budget_calculate_tool]
-
-def get_tool_schema()     # → 生成 OpenAI function-calling 格式
-async def execute_tool()  # → 按 name 分发执行
-```
-
-### 天气工具重构
-
-`weather.py` 从硬编码字典改为 `Tool` dataclass 注册，定义与实现分离。
-
-### 新工具：预算计算
-
-`budget_calculate.py` — 根据**天数 / 人数 / 档次**（经济/舒适/豪华）估算旅行预算，输出住宿、餐饮、交通、门票分项明细。支持 tool calling 自动调用。
-
-### LLM Agent 适配
-
-`planner.py` 适配新的 `get_tool_schema()` + `execute_tool()` 接口。
-
-**影响范围**: 5 个后端文件（4 修改 + 1 新增），+67 行 / -31 行
+- **59 passed / 3 skipped** — 与 v0.4.0 基线一致，零回归
+- `conftest.py` 的 `mock_redis` 补齐新使用点（`dependencies`、`weather`）+ Sorted Set / 缓存方法
+- ⚠️ 运行需要真实 Redis：开发地址 `redis://192.168.126.128:6379/0`（虚拟机 Docker），测试环境自动 mock
 
 ---
 
 ## 完整 Changelog
 
 ```
-b355205 feat: 前端 UI 全面优化 + 后端工具注册机制重构 + 新增预算计算工具  ← 当前
-5672dd9 feat: LLM意图分类 + gossip闲聊分流 + 工具调用循环防护
-83ad0cb chore: 将日记目录加入.gitignore
-a59f2dd feat: 添加tool calling机制与天气预报工具
-f2adbd6 fix: 修复AI重复发言与纯JSON输出问题
-7902f04 修正.env.exmaple和README文件
+027cb67 feat: v0.5.0 Redis 速率限制（滑动窗口）+ 天气缓存 + 前端登出接后端   ← 当前
+cf5d7c2 feat: Redis 集成（Token 黑名单 + 登出接口）+ 修复测试环境
 ```
 
 ---
 
 ## 升级注意事项
 
-1. 前端需重新 `npm install` 获取 Tailwind v4 依赖
-2. 后端需确认 `backend/app/tools/` 目录存在（新增 `__init__.py`、`base.py`、`budget_calculate.py`）
-3. 无数据库迁移，无 API breaking changes
+1. 后端需新增依赖 `redis[hiredis]`（uv.lock 已包含）
+2. **必须启动 Redis**，否则 `init_redis()` 连不上直接 `sys.exit(1)` 退出
+3. 新增配置项：`WEATHER_CACHE_TTL`、`RATE_LIMIT_REQUESTS`、`RATE_LIMIT_WINDOW`（均有默认值）
+4. 无数据库迁移；`/logout` 为新增接口，前端 `logOut()` 已同步
 
 ---
 
-## 下一步展望 (v0.5.0)
+## 下一步展望 (v0.6.0)
 
-- [ ] 前端：行程确认/编辑交互
-- [ ] 后端：middleware 鉴权中间件实现
-- [ ] 工具：景点查询、交通规划等新工具
-- [ ] 测试：提高覆盖率，补充 E2E 测试
+- [ ] Agent 记忆系统：偏好提取、跨会话持久化（Redis + 向量嵌入）
+- [ ] 行程确认/编辑交互接后端
+- [ ] ReAct 推理循环 + 反思机制
+- [ ] 多 Agent 协作架构
 
 ---
 

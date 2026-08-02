@@ -1,6 +1,6 @@
 # 旅游助手 Agent API 接口规范
 
-> v0.4.0 | Base URL: `http://localhost:8000` | Protocol: REST JSON + SSE Streaming
+> v0.5.0 | Base URL: `http://localhost:8000` | Protocol: REST JSON + SSE Streaming
 
 ---
 
@@ -634,5 +634,5 @@ function handleSSEError(event: { type: "error"; detail: string }) {
 ---
 
 > **文档元信息**
-> 版本：v0.4.0 | 更新日期：2026-07-30 | 代码版本：2631511
+> 版本：v0.5.0 | 更新日期：2026-08-02 | 代码版本：027cb67
 > 对应架构文档：旅游助手Agent架构设计.md

@@ -2,7 +2,7 @@
 
 基于 DeepSeek V4 大模型的智能旅游规划助手，通过多轮对话理解用户偏好，自动生成结构化行程方案。
 
-> **最新版本**: [v0.4.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.4.0) — "视觉重生" 🎨 | [更新日志](RELEASE_NOTES.md)
+> **最新版本**: [v0.5.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.5.0) — "Redis 上云" 🚀 | [更新日志](RELEASE_NOTES.md)
 
 ## 功能概览
 
@@ -157,6 +157,7 @@ docker-compose logs -f
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| [v0.5.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.5.0) | 2026-08-02 | Redis 集成：Token 黑名单 + 滑动窗口限流 + 天气缓存 |
 | [v0.4.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.4.0) | 2026-07-29 | 前端 UI 全面优化 + 后端工具注册机制重构 + 预算计算工具 |
 | v0.3.0 | 2026-07-27 | LLM 意图分类 + 闲聊分流 + 工具调用循环防护 |
 | v0.2.0 | 2026-07-25 | Tool Calling 机制 + 天气预报工具 |
