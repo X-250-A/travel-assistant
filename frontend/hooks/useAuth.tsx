@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
-import { getMe, login as apiLogin, register as apiRegister } from "@/lib/api";
+import { getMe, login as apiLogin, register as apiRegister, logOut as apiLogOut } from "@/lib/api";
 import type { User } from "@/types";
 
 interface AuthContextValue {
@@ -49,9 +49,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(userData);
     }, []);
 
-    const logout = useCallback(() => {
-        localStorage.removeItem("token");
-        setUser(null);
+    const logout = useCallback(async () => {
+        try {
+            await apiLogOut();
+        }
+        finally{
+            localStorage.removeItem("token");
+            setUser(null);
+        }
+
     }, []);
 
     return (

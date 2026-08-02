@@ -68,9 +68,8 @@ export async function getMe(): Promise<User> {
     return request<User>("GET", "/api/auth/me");
 }
 
-export function logOut(): void {
-    localStorage.removeItem("token");
-    window.location.href = "/login";
+export function logOut(): Promise<void> {
+    return request("POST", "/api/auth/logout");
 }
 
 // ── 行程 ──────────────────────────────────────────────────────────────

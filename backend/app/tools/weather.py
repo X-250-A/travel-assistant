@@ -1,4 +1,7 @@
+import random
+import datetime
 import httpx
+from backend.app.db.redis import get_redis
 from backend.app.config import settings
 from backend.app.tools.base import Tool
 
@@ -18,6 +21,17 @@ WEATHER_PARAMETERS = {
 
 async def get_weather(city : str, date : str = None):
     api_key = settings.WEATHER_API_KEY
+
+    # key归一化，预防同一数据不同写法导致key不同，降低缓存命中率
+    normalized_date = date or datetime.date.today().isoformat()
+
+    # 查缓存，命中则返回
+    cache_key = f"weather:{city}:{normalized_date}"
+    r = await get_redis(0) 
+    cached = await r.get(cache_key)
+    await r.close()
+    if cached:
+        return cached
 
     params = {
         "key" : api_key,
@@ -40,6 +54,11 @@ async def get_weather(city : str, date : str = None):
     result += f"  天气：{c['condition']['text']}\n"
     result += f"  温度：{c['temp_c']}°C（体感 {c['feelslike_c']}°C）\n"
     result += f"  湿度：{c['humidity']}%　风速：{c['wind_kph']}km/h"
+
+
+    r = await get_redis(0)
+    await r.setex(cache_key, settings.WEATHER_CACHE_TTL + random.randint(-300, 300), result)
+    await r.close()
 
     return result
 

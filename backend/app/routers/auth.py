@@ -4,15 +4,20 @@ from backend.app.db.session import get_db
 from backend.app.crud import user
 from backend.app.schemas.auth import RegisterRequest, LoginRequest, UserResponse, TokenResponse
 from backend.app.utils.jwt import create_access_token
-from backend.app.routers.dependencies import get_current_user
+from backend.app.routers.dependencies import get_current_user, ip_ratelimit
 from backend.app.config import settings
 from backend.app.db.redis import get_redis
+
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
 @router.post("/register")
-async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(
+    user_data: RegisterRequest,
+    db: AsyncSession = Depends(get_db),
+    rate: bool = Depends(ip_ratelimit)
+):  
     existing = await user.find_user_by_username(db, user_data.username)
     if existing:
         raise HTTPException(status_code=400, detail="用户名已存在")
@@ -23,7 +28,14 @@ async def register(user_data: RegisterRequest, db: AsyncSession = Depends(get_db
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(user_data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(
+    request: Request,
+    user_data: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+    rate: bool = Depends(ip_ratelimit)
+):
+    # IP限流防批量注册登录
+
     existing = await user.authenticate_user(db, user_data.username, user_data.password)
     if not existing:
         raise HTTPException(status_code=401, detail="用户名或密码错误")

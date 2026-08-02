@@ -135,12 +135,28 @@ async def mock_redis():
     mock_r.sismember = AsyncMock(return_value=0)  # 不在黑名单
     mock_r.sadd = AsyncMock(return_value=1)
     mock_r.expire = AsyncMock(return_value=True)
-    # 两处使用点都是 `from ... import get_redis` 的模块级绑定，必须 patch 使用处
+    # 限流（ratelimit/core.py）：zremrangebyscore/zadd/zcard 的返回值不被业务使用，
+    # 但 zcard 会被拿去和 limit 比较，必须返回 int（1 = 窗口内 1 个请求，≤ limit 放行）
+    mock_r.zremrangebyscore = AsyncMock(return_value=1)
+    mock_r.zadd = AsyncMock(return_value=1)
+    mock_r.zcard = AsyncMock(return_value=1)
+    # 天气缓存（tools/weather.py）：get 返回 None = 缓存未命中，走真实 API 分支
+    mock_r.get = AsyncMock(return_value=None)
+    mock_r.setex = AsyncMock(return_value=True)
+    # 各使用点都是 `from ... import get_redis` 的模块级绑定，必须 patch 使用处
+    # （注意：dependencies.py 的 ip_ratelimit 挂在 register/login 上，不 patch 会撞真实 Redis）
     patch_targets = [
         "backend.app.middleware.auth_middleware.get_redis",
         "backend.app.routers.auth.get_redis",
+        "backend.app.routers.dependencies.get_redis",
+        "backend.app.tools.weather.get_redis",
     ]
-    with patch(patch_targets[0], return_value=mock_r), patch(patch_targets[1], return_value=mock_r):
+    with (
+        patch(patch_targets[0], return_value=mock_r),
+        patch(patch_targets[1], return_value=mock_r),
+        patch(patch_targets[2], return_value=mock_r),
+        patch(patch_targets[3], return_value=mock_r),
+    ):
         yield mock_r
 
 async def _register_and_login(client: AsyncClient, username: str, password: str) -> str:

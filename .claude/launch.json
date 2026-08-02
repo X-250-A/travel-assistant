@@ -10,6 +10,18 @@
       ],
       "port": 3000,
       "cwd": "frontend"
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "D:\\agent个人项目开发\\从零开始型\\traval-asistant-of-Mr-An\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": [
+        "-m",
+        "uvicorn",
+        "backend.app.main:app",
+        "--port",
+        "8000"
+      ],
+      "port": 8000
     }
   ]
 }

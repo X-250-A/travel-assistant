@@ -52,7 +52,7 @@ async def jwt_middleware(request: Request, call_next):
     is_blacklisted = await r.sismember(f"blacklist:{user_id}", jti)
     await r.close()
     if is_blacklisted:
-        return JSONResponse(status_code=status.HTTP_401_FORBIDDEN, content={"detail": "token处于黑名单"})
+        return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": "token处于黑名单"})
 
 
     # user_id与jti非空校验
