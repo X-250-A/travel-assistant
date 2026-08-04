@@ -25,6 +25,11 @@ async def jwt_middleware(request: Request, call_next):
     if request.url.path in PUBLIC_PATHS:
         return await call_next(request)
 
+    # CORS 预检请求（OPTIONS）不携带 Authorization，直接放行
+    # 预检只是浏览器询问"允许跨域吗"，不应参与 JWT 鉴权
+    if request.method == "OPTIONS":
+        return await call_next(request)
+
     # 进入请求的前置逻辑：
 
     # 获取Authorization验证信息

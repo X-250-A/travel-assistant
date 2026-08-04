@@ -84,6 +84,21 @@ def _mock_classify_response(intent: str) -> MagicMock:
 
 
 # ─── 辅助：创建一个最简单的 ConversationManager（不走数据库）────────────
+def _make_mock_redis() -> AsyncMock:
+    """构造一个能响应偏好功能的 mock Redis。
+
+    load_preferences / save_preferences 会用到的：
+    - hgetall → 返回 {} 表示"无历史偏好"
+    - hmset  → 返回 True
+    - expire → 返回 True
+    """
+    mock_r = AsyncMock()
+    mock_r.hgetall = AsyncMock(return_value={})
+    mock_r.hmset = AsyncMock(return_value=True)
+    mock_r.expire = AsyncMock(return_value=True)
+    return mock_r
+
+
 def _make_conversation_manager() -> ConversationManager:
     """返回一个最小化的 ConversationManager，绕过数据库依赖"""
     mgr = ConversationManager.__new__(ConversationManager)
@@ -295,7 +310,7 @@ class TestHandleMessage:
         conv = _make_conversation_manager()
 
         events = []
-        async for event in agent.handle_message("你好", conv):
+        async for event in agent.handle_message("你好", conv, _make_mock_redis()):
             events.append(event)
 
         # 应该只有一条 token + done（没有调用 LLM）
@@ -313,7 +328,7 @@ class TestHandleMessage:
         conv = _make_conversation_manager()
 
         events = []
-        async for event in agent.handle_message("想去成都玩三天", conv):
+        async for event in agent.handle_message("想去成都玩三天", conv, _make_mock_redis()):
             events.append(event)
 
         # 确认调用了 LLM
@@ -339,7 +354,7 @@ class TestHandleMessage:
         # 用 patch 替换 update_trip 以捕获调用
         with patch("backend.app.agent.planner.update_trip", new_callable=AsyncMock) as mock_update:
             events = []
-            async for event in agent.handle_message("想去成都玩三天", conv):
+            async for event in agent.handle_message("想去成都玩三天", conv, _make_mock_redis()):
                 events.append(event)
 
             mock_update.assert_called_once()
@@ -356,7 +371,7 @@ class TestHandleMessage:
 
         with patch("backend.app.agent.planner.update_trip", new_callable=AsyncMock):
             events = []
-            async for event in agent.handle_message("想去成都玩三天", conv):
+            async for event in agent.handle_message("想去成都玩三天", conv, _make_mock_redis()):
                 events.append(event)
 
         assert events[-1]["type"] == "done"
@@ -375,7 +390,7 @@ class TestHandleMessage:
             return_value=MagicMock(plan_data=json.loads(FAKE_TRIP_JSON)),
         ):
             events = []
-            async for event in agent.handle_message("把第二天的景点改一下", conv):
+            async for event in agent.handle_message("把第二天的景点改一下", conv, _make_mock_redis()):
                 events.append(event)
 
         tokens = [e for e in events if e["type"] == "token"]
@@ -396,7 +411,7 @@ class TestHandleMessage:
             return_value=MagicMock(plan_data=None),
         ):
             events = []
-            async for event in agent.handle_message("换个景点吧", conv):
+            async for event in agent.handle_message("换个景点吧", conv, _make_mock_redis()):
                 events.append(event)
 
         tokens = [e for e in events if e["type"] == "token"]
@@ -417,7 +432,7 @@ class TestHandleMessage:
             return_value=None,
         ):
             events = []
-            async for event in agent.handle_message("换个景点吧", conv):
+            async for event in agent.handle_message("换个景点吧", conv, _make_mock_redis()):
                 events.append(event)
 
         assert len(events) == 1

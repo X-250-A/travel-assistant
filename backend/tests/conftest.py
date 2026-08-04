@@ -135,6 +135,9 @@ async def mock_redis():
     mock_r.sismember = AsyncMock(return_value=0)  # 不在黑名单
     mock_r.sadd = AsyncMock(return_value=1)
     mock_r.expire = AsyncMock(return_value=True)
+    # 用户偏好记忆（memory/preferences.py）：hgetall 返回空 dict = 无历史偏好
+    mock_r.hgetall = AsyncMock(return_value={})
+    mock_r.hmset = AsyncMock(return_value=True)
     # 限流（ratelimit/core.py）：zremrangebyscore/zadd/zcard 的返回值不被业务使用，
     # 但 zcard 会被拿去和 limit 比较，必须返回 int（1 = 窗口内 1 个请求，≤ limit 放行）
     mock_r.zremrangebyscore = AsyncMock(return_value=1)
@@ -149,6 +152,7 @@ async def mock_redis():
         "backend.app.middleware.auth_middleware.get_redis",
         "backend.app.routers.auth.get_redis",
         "backend.app.routers.dependencies.get_redis",
+        "backend.app.routers.chat.get_redis",
         "backend.app.tools.weather.get_redis",
     ]
     with (
@@ -156,6 +160,7 @@ async def mock_redis():
         patch(patch_targets[1], return_value=mock_r),
         patch(patch_targets[2], return_value=mock_r),
         patch(patch_targets[3], return_value=mock_r),
+        patch(patch_targets[4], return_value=mock_r),
     ):
         yield mock_r
 

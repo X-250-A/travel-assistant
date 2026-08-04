@@ -52,6 +52,8 @@ class Settings(BaseSettings):
 
     WEATHER_CACHE_TTL: int = 3600 # 1 小时
 
+    PERMANENT_SESSION_LIFETIME: int = 60 * 60 * 24 * 30
+
     model_config = {
         "env_file": str(Path(__file__).parent.parent.parent / ".env"),
         "env_file_encoding": "utf-8"

@@ -3,26 +3,31 @@ TripPlannerAgent: 行程规划 Agent 核心
 
 封装行程规划 Agent 的核心决策逻辑——理解用户意图、构建 Prompt、调用 LLM、解析行程结果、处理用户反馈。
 """
+from redis.asyncio import Redis
+
 from backend.app.services.prompt_builder import PromptBuilder
 from backend.app.services.llm_client import LLMClient
 from backend.app.crud.trip import find_trip_by_id, update_trip
-from backend.app.tools import ALL_TOOLS, get_tool_schema, execute_tool
+from backend.app.tools import get_tool_schema, execute_tool
 import json
 import re
 from backend.app.config import settings
-
+from backend.app.memory.preferences import load_preferences, extract_preferences, save_preferences
 
 MAX_TOOL_ROUND = 10
 
 
 class TripPlannerAgent:
     """行程规划 Agent 核心"""
+
     def __init__(self):
         self.prompt_builder = PromptBuilder()
         self.llm_client = LLMClient()
 
-    async def handle_message(self, user_input: str, conversation):
+    async def handle_message(self, user_input: str, conversation, r: Redis):
         """Agent 主入口：接收用户消息，返回 Agent 回复（流式）"""
+        conversation.pref = await load_preferences(r, conversation.user_id)
+
         # 1. 保存用户消息
         await conversation.add_message("user", user_input)
 
@@ -64,11 +69,15 @@ class TripPlannerAgent:
         if plan_data is not None:
             try:
                 await update_trip(conversation.db, conversation.trip_id, plan_data=plan_data)
+
             except Exception as e:
                 print(f"[ERROR] 保存行程失败: {e}")
 
         # 6. 保存 AI 回复（自然语言部分，不含 JSON 代码块）
         await conversation.add_message("assistant", display_text)
+        new_pref = extract_preferences(user_input)
+        if new_pref:
+            await save_preferences(r, conversation.user_id, new_pref)
 
         # 7. 结束 — 把 trip_id 带回前端，让前端知道"刚聊的是哪个行程"
         yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
@@ -138,8 +147,8 @@ class TripPlannerAgent:
 
         # 构建 messages
         message = [{
-            "role" : "system",
-            "content" : intent_classifier_prompt
+            "role": "system",
+            "content": intent_classifier_prompt
         }]
 
         # 检查对话历史
@@ -154,12 +163,12 @@ class TripPlannerAgent:
         # 将上下文历史加入 messages
         if context_hint != "":
             message.append({
-                "role" : "system",
-                "content" : context_hint
+                "role": "system",
+                "content": context_hint
             })
         message.append({
-            "role" : "user",
-            "content" : user_input
+            "role": "user",
+            "content": user_input
         })
 
         try:
@@ -169,7 +178,7 @@ class TripPlannerAgent:
                 stream=False,
                 timeout=settings.LLM_REQUEST_TIMEOUT,
                 temperature=0,
-                response_format={"type" : "json_object"}
+                response_format={"type": "json_object"}
             )
             result = json.loads(resp.choices[0].message.content)
             intent = result.get("intent", "unclear")
@@ -180,7 +189,6 @@ class TripPlannerAgent:
             print(f"[WARN] LLM 意图分类失败，回退关键词: {e}")
             # 4. fallback 到关键词匹配
             return self._keyword_classify(user_input)
-
 
     def _keyword_classify(self, user_input: str):
         """老方法：关键词匹配"""
@@ -203,7 +211,7 @@ class TripPlannerAgent:
 
         return "unclear"
 
-    async def _generate_plan(self, conversation, tool_defs = None):
+    async def _generate_plan(self, conversation, tool_defs=None):
         """构造 Prompt 调用 LLM 生成行程"""
         context = await conversation.get_context(max_tokens=30000, token_counter=self.llm_client.count_tokens)
 
@@ -219,6 +227,7 @@ class TripPlannerAgent:
         messages = self.prompt_builder.build_messages(
             history=history,
             user_input=user_input,
+            pref=conversation.pref
         )
 
         if tool_defs is None:
@@ -240,16 +249,15 @@ class TripPlannerAgent:
                 "tool_calls": message.tool_calls  # tool_calls 列表
             })
 
-
             for tool_call in message.tool_calls:
                 fn_name = tool_call.function.name
                 fn_args = json.loads(tool_call.function.arguments)
                 result = await execute_tool(fn_name, **fn_args)
-                    
+
                 messages.append({
                     "role": "tool",
-                    "tool_call_id" : tool_call.id,
-                    "content" : result,
+                    "tool_call_id": tool_call.id,
+                    "content": result,
                 })
 
             message = await self.llm_client.chat(messages, tool_defs)
@@ -269,23 +277,23 @@ class TripPlannerAgent:
     async def _apply_feedback(self, feedback: str, current_plan: dict, conversation):
         """根据用户反馈调整现有行程"""
         modify_prompt = f"""以下是当前行程的完整 JSON：
-{json.dumps(current_plan, ensure_ascii=False, indent=2)}
-
-用户要求：{feedback}
-
-请在现有行程基础上做局部调整。只修改用户提到的部分，其余保持不变。
-先用自然语言说明你做了哪些调整，然后在回复末尾用 ```json 代码块返回修改后的完整行程 JSON。"""
+        {json.dumps(current_plan, ensure_ascii=False, indent=2)}
+        
+        用户要求：{feedback}
+        
+        请在现有行程基础上做局部调整。只修改用户提到的部分，其余保持不变。
+        先用自然语言说明你做了哪些调整，然后在回复末尾用 ```json 代码块返回修改后的完整行程 JSON。"""
         # 保留原始 system prompt 的角色定义，再追加修改指令
-        messages = [
-            {"role": "system", "content": self.prompt_builder.system_prompt},
-            {"role": "system", "content": modify_prompt},
-            *conversation.history_cache,
-        ]
+
+        messages = self.prompt_builder.build_messages(
+            history=conversation.history_cache,
+            user_input=feedback,
+            pref=conversation.pref,
+            extra_system=modify_prompt,
+        )
 
         async for chunk in self.llm_client.chat_stream(messages):
             yield chunk
-
-
 
     async def gossip(self, conversation):
         context = await conversation.get_context(max_tokens=30000, token_counter=self.llm_client.count_tokens)
@@ -302,16 +310,14 @@ class TripPlannerAgent:
         messages = self.prompt_builder.build_messages(
             history=history,
             user_input=user_input,
+            pref=conversation.pref
         )
 
         full_text = ""
 
         async for chunk in self.llm_client.chat_stream(messages):
             full_text += chunk
-            yield {"type" : "token", "content" : chunk}
-
+            yield {"type": "token", "content": chunk}
 
         await conversation.add_message("assistant", full_text)
         yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
-
-

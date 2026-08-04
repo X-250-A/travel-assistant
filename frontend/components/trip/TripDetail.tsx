@@ -3,12 +3,14 @@
 import { useState } from "react";
 import type { Trip, DayPlan } from "@/types";
 import Card from "@/components/ui/Card";
+import EditableTitle from "./EditableTitle";
 
 interface Props {
     trip: Trip;
+    onTitleChange?: (trip: Trip) => void;
 }
 
-export default function TripDetail({ trip }: Props) {
+export default function TripDetail({ trip, onTitleChange }: Props) {
     const { title, plan_data, status, created_at } = trip;
     const isConfirmed = status === "confirmed";
 
@@ -29,8 +31,12 @@ export default function TripDetail({ trip }: Props) {
             {/* 行程概览卡片 */}
             <Card variant="glass">
                 <div className="space-y-3">
-                    <div className="flex items-start justify-between">
-                        <h2 className="text-xl font-bold text-stone-800">{title}</h2>
+                    <div className="flex items-start justify-between gap-3">
+                        {onTitleChange ? (
+                            <EditableTitle trip={trip} onSaved={onTitleChange} />
+                        ) : (
+                            <h2 className="text-xl font-bold text-stone-800">{title}</h2>
+                        )}
                         <span
                             className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
                                 isConfirmed

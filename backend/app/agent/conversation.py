@@ -4,6 +4,7 @@ ConversationManager: 会话状态机、历史消息管理
 管理一次行程规划对话的完整生命周期——创建会话、追踪状态、维护消息历史、控制上下文窗口大小。
 """
 from enum import StrEnum
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from backend.app.crud.trip import create_trip
 from backend.app.crud.message import save_message
@@ -29,12 +30,15 @@ class ConversationManager:
         self.user_id = user_id
         self.state: ConversationState = ConversationState.IDLE
         self.history_cache : list[dict] = [] # 历史对话的缓存
+        self.pref : dict[str, str] | None = None
 
 
 
     async def create_conversation(self, title : str):
         """创建新会话，关联到某个 Trip"""
-        trip = await create_trip(db=self.db, user_id=self.user_id, title=title ,status=self.state)
+        # status 必须用 Trip 的合法值 "draft"，不能用会话状态 self.state（idle/planning/...）
+        # 二者是不同的枚举体系：Trip.status ∈ {draft, confirmed}，ConversationState ∈ {idle, planning, ...}
+        trip = await create_trip(db=self.db, user_id=self.user_id, title=title, status="draft")
         self.trip_id = trip.id
         return trip
 

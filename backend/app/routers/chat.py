@@ -17,6 +17,7 @@ from backend.app.schemas.chat import ChatRequest
 from backend.app.crud.trip import find_trip_by_id
 from backend.app.agent.conversation import ConversationManager
 from backend.app.agent.planner import TripPlannerAgent
+from backend.app.db.redis import get_redis
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 async def chat(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
     """
     核心对话端点，完整流程：
@@ -74,6 +75,7 @@ async def chat(
         user_id=current_user.id,
     )
 
+
     # 如果前面 trip_id 是 0（新行程），现在才真正创建数据库记录
     if request.trip_id is None:
         # create_conversation 内部调用 crud.create_trip() 写入 trip 表
@@ -99,10 +101,12 @@ async def chat(
 
         前端用 EventSource 或 fetch + ReadableStream 接收即可。
         """
+        r = await get_redis(0)
         try:
             async for event in agent.handle_message(
                 request.message,        # 用户输入的文本
                 conversation_manager,   # 会话管理器（Agent 内部会调用 add_message / get_context）
+                r
             ):
                 # SSE 协议格式：每行 "data: <json>\n\n" 表示一个事件
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
@@ -110,6 +114,8 @@ async def chat(
             # Agent 内部如果抛了未捕获的异常，用 error 事件告知前端
             error_event = {"type": "error", "detail": str(exc)}
             yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
+        finally:
+            await r.close()
 
     return StreamingResponse(
         event_generator(),

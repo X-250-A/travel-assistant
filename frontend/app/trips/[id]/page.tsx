@@ -128,7 +128,7 @@ export default function TripDetailPage() {
                     </Button>
                 </div>
 
-                <TripDetail trip={trip} />
+                <TripDetail trip={trip} onTitleChange={setTrip} />
             </div>
         </div>
     );
