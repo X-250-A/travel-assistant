@@ -1,6 +1,6 @@
 # 旅游助手 Agent API 接口规范
 
-> v0.5.0 | Base URL: `http://localhost:8000` | Protocol: REST JSON + SSE Streaming
+> v0.6.0 | Base URL: `http://localhost:8000` | Protocol: REST JSON + SSE Streaming
 
 ---
 
@@ -57,7 +57,7 @@ JWT 默认 **7 天过期**，过期后需重新登录。
 | 403 | 无权限 | 访问不属于自己的行程 |
 | 404 | 资源不存在 | 行程 ID 无效 |
 | 422 | 请求体验证失败 | Pydantic 字段校验失败 |
-| 429 | 请求过多 | 速率限制（v0.5.0 规划） |
+| 429 | 请求过多 | 速率限制（滑动窗口） |
 | 500 | 服务器内部错误 | 未捕获异常 |
 
 ---
@@ -630,9 +630,15 @@ function handleSSEError(event: { type: "error"; detail: string }) {
 | `LLM_READ_TIMEOUT` | LLM 读取超时（秒）| `45.0` |
 | `LLM_REQUEST_TIMEOUT` | LLM 请求总超时（秒）| `90.0` |
 | `CORS_ORIGINS` | 允许的跨域来源 | `http://localhost:3000` |
+| `REDIS_URL` | Redis 连接串（黑名单/限流/缓存/偏好） | `redis://localhost:6379/0` |
+| `REDIS_TOKEN_BLACKLIST_DB` | JWT 黑名单所在 Redis DB | `1` |
+| `RATE_LIMIT_REQUESTS` | 滑动窗口限流阈值（次/窗） | `30` |
+| `RATE_LIMIT_WINDOW` | 限流窗口（秒） | `60` |
+| `WEATHER_CACHE_TTL` | 天气缓存时长（秒） | `3600` |
+| `PERMANENT_SESSION_LIFETIME` | 用户偏好等长期数据 TTL（秒） | `2592000` |
 
 ---
 
 > **文档元信息**
-> 版本：v0.5.0 | 更新日期：2026-08-02 | 代码版本：027cb67
+> 版本：v0.6.0 | 更新日期：2026-08-04 | 代码版本：3064145
 > 对应架构文档：旅游助手Agent架构设计.md
