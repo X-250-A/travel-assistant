@@ -27,9 +27,9 @@ async def get_weather(city : str, date : str = None):
 
     # 查缓存，命中则返回
     cache_key = f"weather:{city}:{normalized_date}"
-    r = await get_redis(0) 
+    r = await get_redis(0)
     cached = await r.get(cache_key)
-    await r.close()
+    await r.aclose()
     if cached:
         return cached
 
@@ -58,7 +58,7 @@ async def get_weather(city : str, date : str = None):
 
     r = await get_redis(0)
     await r.setex(cache_key, settings.WEATHER_CACHE_TTL + random.randint(-300, 300), result)
-    await r.close()
+    await r.aclose()
 
     return result
 

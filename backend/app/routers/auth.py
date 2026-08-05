@@ -57,7 +57,7 @@ async def logout(request : Request):
     r = await get_redis(settings.REDIS_TOKEN_BLACKLIST_DB)
     await r.sadd(f"blacklist:{user_id}", jti)
     await r.expire(f"blacklist:{user_id}", settings.ACCESS_TOKEN_EXPIRE_MINUTES + 3600 )
-    await r.close()
+    await r.aclose()
 
     return {"message": "logout_success"}
 

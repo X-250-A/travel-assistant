@@ -55,7 +55,7 @@ async def jwt_middleware(request: Request, call_next):
     # 查Redis的token黑名单
     r = await get_redis(settings.REDIS_TOKEN_BLACKLIST_DB)
     is_blacklisted = await r.sismember(f"blacklist:{user_id}", jti)
-    await r.close()
+    await r.aclose()
     if is_blacklisted:
         return JSONResponse(status_code=status.HTTP_403_FORBIDDEN, content={"detail": "token处于黑名单"})
 

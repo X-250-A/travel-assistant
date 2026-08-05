@@ -34,7 +34,7 @@ async def ip_ratelimit(
     # 启动redis
     r = await get_redis()
     ok = await check_rate_limit(r,f"rate:ip:{request.url.path}:{ip}", settings.RATE_LIMIT_REQUESTS, settings.RATE_LIMIT_WINDOW)
-    await r.close()
+    await r.aclose()
     if not ok:
         raise HTTPException(status_code=429, detail="请求过于频繁，请稍后再试")
     return True

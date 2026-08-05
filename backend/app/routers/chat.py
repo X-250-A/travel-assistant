@@ -115,7 +115,7 @@ async def chat(
             error_event = {"type": "error", "detail": str(exc)}
             yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n"
         finally:
-            await r.close()
+            await r.aclose()
 
     return StreamingResponse(
         event_generator(),
