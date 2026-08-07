@@ -60,7 +60,7 @@ SSE 链路新增 `thinking` 事件：`api.ts` 解析 → `useChat` 维护 `think
 ## 完整 Changelog
 
 ```
-（待本次提交写入）
+385c46d feat: v0.7.0 ReAct 推理循环（Thought-Action-Observation）+ 反思机制   ← 当前
 ```
 
 ---
