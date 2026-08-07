@@ -1,6 +1,6 @@
 import { sendMessage as apiSendMessage, getMessages } from "@/lib/api";
 import { Message } from "@/types";
-import { useState, useRef, useCallback } from "react";
+import {useState, useRef, useCallback} from "react";
 
 
 // 聊天核心 hook：发消息、接收 SSE 流、消息列表状态
@@ -8,10 +8,13 @@ export function useChat() {
     const [messages, setMessages] = useState<Message[]>([]);
     const [streaming, setStreaming] = useState("");
     const [sending, setSending] = useState(false);
+    const [thinking, setThinking] = useState("")
     /** 当前已加载的 tripId，避免同一行程重复加载 */
     const loadedTripIdRef = useRef<number | null>(null);
     /** streaming 内容的同步副本，避免在 setStreaming updater 里嵌套 setMessages */
     const streamingBufRef = useRef("");
+    /** thinking 内容的同步副本，仿streaming **/
+    const thinkingBufRef = useRef("");
 
     /** 加载历史消息 */
     const loadMessages = useCallback(async (tripId: number) => {
@@ -29,9 +32,11 @@ export function useChat() {
     const reset = useCallback(() => {
         setMessages([]);
         setStreaming("");
+        setThinking("");
         setSending(false);
         loadedTripIdRef.current = null;
         streamingBufRef.current = "";
+        thinkingBufRef.current = "";
     }, []);
 
     const sendMessage = async (text: string, tripId: number | null): Promise<number | null> => {
@@ -47,6 +52,10 @@ export function useChat() {
         const finalTripId = await new Promise<number | null>((resolve) => {
             apiSendMessage(
                 text, tripId, {
+                    onThinking: (thinking) => {
+                        thinkingBufRef.current += thinking;
+                        setThinking(thinkingBufRef.current);
+                    },
                     onToken: (chunk) => {
                         streamingBufRef.current += chunk;
                         setStreaming(streamingBufRef.current);
@@ -54,7 +63,9 @@ export function useChat() {
                     onDone: (newTripId) => {
                         const finalText = streamingBufRef.current;
                         streamingBufRef.current = "";
+                        thinkingBufRef.current = "";
                         setStreaming("");
+                        setThinking("");
 
                         if (finalText.trim()) {
                             const aiMsg: Message = {
@@ -70,8 +81,11 @@ export function useChat() {
                         resolve(newTripId ?? null);
                     },
                     onError: (err) => {
+                        streamingBufRef.current = "";
+                        thinkingBufRef.current = "";
                         setStreaming("");
                         setSending(false);
+                        setThinking("");
 
                         const errMsg : Message = {
                             id : Date.now(),
@@ -91,5 +105,5 @@ export function useChat() {
     }
 
 
-    return { messages, streaming, sending, sendMessage, loadMessages, reset };
+    return { messages, thinking, streaming, sending, sendMessage, loadMessages, reset };
 }

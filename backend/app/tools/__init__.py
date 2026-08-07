@@ -13,7 +13,7 @@ def get_tool_schema():
     return [tool.openai_schema() for tool in ALL_TOOLS]
 
 
-async def execute_tool(name : str,**kwargs):
+async def execute_tool(name : str, **kwargs):
     for tool in ALL_TOOLS:
         if tool.name == name:
             if tool.handler is None:

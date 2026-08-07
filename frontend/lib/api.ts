@@ -111,7 +111,7 @@ export async function sendMessage(
     tripId: number | null | undefined,
     handlers: SSEHandlers,
 ): Promise<void> {
-    const { onToken, onDone, onError } = handlers;
+    const { onToken, onDone, onError, onThinking } = handlers;
 
     const token = localStorage.getItem("token");
     const res = await fetch(`${BASE_URL}/api/chat`, {
@@ -140,6 +140,9 @@ export async function sendMessage(
             if (!part.startsWith("data: ")) continue;
             const data = JSON.parse(part.slice(6));
             switch (data.type) {
+                case "thinking":
+                    onThinking?.(data.content);
+                    break;
                 case "token":
                     onToken?.(data.content);
                     break;

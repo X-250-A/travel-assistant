@@ -81,6 +81,7 @@ export interface SSEHandlers {
   onToken?: (text: string) => void;
   onDone?: (tripId?: number) => void;
   onError?: (err: string) => void;
+  onThinking?: (thinking: string) => void;
 }
 
 /** PATCH /api/trips/{id} 请求体 */

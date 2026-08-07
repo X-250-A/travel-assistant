@@ -56,11 +56,16 @@ class TripPlannerAgent:
             yield {"type": "done", "data": {}}
             return
 
-        # 3. 消费流式生成器，一边 yield token，一边收集完整文本
+        # 3. 消费流式生成器，按事件类型分流：
+        #    - token 事件 → 拼进 full_text，同时转发给前端（打字机）
+        #    - thinking/tool 事件 → 原样透传，不进入消息文本
         full_text = ""
         async for chunk in stream:
-            full_text += chunk
-            yield {"type": "token", "content": chunk}
+            if chunk["type"] == "token":
+                full_text += chunk["content"]
+                yield {"type": "token", "content": chunk["content"]}
+            else:
+                yield chunk
 
         # 4. 从回复中分离自然语言文本与结构化 JSON
         display_text, plan_data = self._extract_plan_json(full_text)
@@ -216,7 +221,7 @@ class TripPlannerAgent:
         context = await conversation.get_context(max_tokens=30000, token_counter=self.llm_client.count_tokens)
 
         if not context:
-            yield "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"
+            yield {"type": "token", "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"}
             return
 
         # context 按时间升序排列，最后一条是当前用户消息
@@ -233,26 +238,39 @@ class TripPlannerAgent:
         if tool_defs is None:
             tool_defs = get_tool_schema()
 
+        thoughts : list[str] = []
+
         # 非流式调用LLM
         message = await self.llm_client.chat(messages, tool_defs)
         if not message.tool_calls:
             # 没有工具调用的需求，则yield流式输出
             async for chunk in self.llm_client.chat_stream(messages):
-                yield chunk
+                yield {"type": "token", "content": chunk}
             return
         tool_round = 0
         while tool_round < MAX_TOOL_ROUND:
             tool_round += 1
+
             messages.append({
                 "role": "assistant",
                 "content": message.content,  # 可能为 None
                 "tool_calls": message.tool_calls  # tool_calls 列表
             })
 
+
+
+            tool_names = ", ".join(tool_call.function.name for tool_call in message.tool_calls)
+
+            yield {"type": "thinking", "content": f"我现在要使用 {tool_names} 工具以确认安排"}
+
+            observations = []
+
             for tool_call in message.tool_calls:
                 fn_name = tool_call.function.name
                 fn_args = json.loads(tool_call.function.arguments)
                 result = await execute_tool(fn_name, **fn_args)
+
+                observations.append(f"{fn_name}({fn_args}) → {result}")
 
                 messages.append({
                     "role": "tool",
@@ -260,11 +278,26 @@ class TripPlannerAgent:
                     "content": result,
                 })
 
+            # 在 observations 循环结束、调用下一轮 LLM 之前
+            summary = "; ".join(obs[:120] for obs in observations)
+            thoughts.append(f"第{tool_round}轮：调用了 {tool_names}，结果：{summary[:150]}")
+
+            messages.append({
+                "role": "assistant",
+                "content": (
+                        "[内部推理] 我目前已掌握的信息：\n"
+                        + "\n".join(f"- {t}" for t in thoughts[-3:])
+                        + "\n\n请基于以上信息评估：是否已满足用户需求？"
+                          "若已满足，直接组织最终行程回答，不要调用工具；"
+                          "若关键信息仍有缺失，再调用工具补充。"
+                ),
+            })
+
             message = await self.llm_client.chat(messages, tool_defs)
 
             if not message.tool_calls:
                 async for chunk in self.llm_client.chat_stream(messages):
-                    yield chunk
+                    yield {"type": "token", "content": chunk}
                 return
 
         # 调用上限后的兜底处理
@@ -272,7 +305,7 @@ class TripPlannerAgent:
         print(f"[WARN] 工具调用超过 {MAX_TOOL_ROUND} 轮，强制结束")
         # 兜底：把当前上下文流式输出
         async for chunk in self.llm_client.chat_stream(messages):
-            yield chunk
+            yield {"type": "token", "content": chunk}
 
     async def _apply_feedback(self, feedback: str, current_plan: dict, conversation):
         """根据用户反馈调整现有行程"""
@@ -293,13 +326,13 @@ class TripPlannerAgent:
         )
 
         async for chunk in self.llm_client.chat_stream(messages):
-            yield chunk
+            yield {"type": "token", "content": chunk}
 
     async def gossip(self, conversation):
         context = await conversation.get_context(max_tokens=30000, token_counter=self.llm_client.count_tokens)
 
         if not context:
-            yield "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"
+            yield {"type": "token", "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"}
             return
 
         # context 按时间升序排列，最后一条是当前用户消息

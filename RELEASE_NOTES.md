@@ -1,6 +1,86 @@
 # 发布记录
 
-> 项目版本演进日志 · v0.1.0 → v0.6.0 · 最新版本在顶部
+> 项目版本演进日志 · v0.1.0 → v0.7.0 · 最新版本在顶部
+
+---
+
+# Release v0.7.0 — "ReAct 觉醒" 🤖
+
+> 2026-08-07 · 自 v0.6.0 起（1 次发布提交）
+
+---
+
+## 概述
+
+v0.7.0 为 Agent 装上了真正的 **ReAct 推理循环**：模型不再"一轮工具调用后直接输出"，而是进入 **Thought（思考）→ Action（行动）→ Observation（观察）** 的闭环，基于工具结果自我评估、自我纠错，直到信息充分才组织最终行程。这标志着 Agent 从"会调用工具"升级为"会思考为什么调用工具"。
+
+---
+
+## 后端 — ReAct 推理循环 🤖
+
+### 1. 循环结构
+
+`_generate_plan` 的工具调用分支升级为完整的 ReAct 回路：
+
+- **Thought**：工具结果回填后，注入 `[内部推理]` 反思消息——模型基于已掌握的全部信息评估"是否满足用户需求"，决定停止还是补调
+- **Action**：保留 OpenAI function-calling 原生工具调用（`tool_calls`）
+- **Observation**：每轮执行工具后，结果回填 `messages`（`role: tool`），并汇总进 `thoughts` 轨迹（保留最近 3 轮，截断长结果控 token）
+- **收敛指令**：反思消息显式引导"若已满足，直接回答，不要调用工具"，避免无限兜底
+
+### 2. 事件分流
+
+`handle_message` 消费流式生成器时按事件类型分流：`token` 事件拼进消息文本并转发前端打字机；`thinking` 事件原样透传、**不进入消息文本**。
+
+### 3. 前端配套
+
+SSE 链路新增 `thinking` 事件：`api.ts` 解析 → `useChat` 维护 `thinking` 状态 → `ChatContainer` 渲染"🤔 Agent 正在思考"气泡。
+
+---
+
+## 修复 🐛
+
+| 问题 | 修复 |
+| --- | --- |
+| 工具轮次 `assistant.content=None` 被流式输出污染回复 | 工具轮只回填 messages、不 yield 文本，最终轮才流式输出 |
+| `tool_calls` 回填重复导致 API 400 | 删除冗余的 `else` 分支回填，只保留循环内统一回填点 |
+| 工具轮 `yield` 裸字符串与事件结构不一致 | `_generate_plan` 全部事件统一为 `{"type": ..., "content": ...}` 结构 |
+
+---
+
+## 测试 ⚙️
+
+- **59 passed / 3 skipped** — 与 v0.6.0 基线一致，零回归
+- ReAct 实机验证（真实 DeepSeek + 真实天气/预算/交通工具 + 真实 Redis）：
+  - 模型第一轮并行调用 5 个工具 → 反思发现舒适档 ¥3600 超预算 → 第二轮**针对性补调经济档重算** → 收敛输出行程 JSON
+  - `[内部推理]` 在第 2、3 次 LLM 调用时均成功注入
+  - 最终行程 JSON 可解析（成都 / 3 天 / 预算内）
+
+---
+
+## 完整 Changelog
+
+```
+（待本次提交写入）
+```
+
+---
+
+## 升级注意事项
+
+1. 后端 `_generate_plan` 事件结构统一为 `{type, content}`，前端 SSE 解析已同步支持 `thinking` 事件
+2. Redis 仍是硬依赖：`init_redis()` 连不上直接 `sys.exit(1)`
+3. 无数据库迁移；无新增配置项
+
+---
+
+## 下一步展望 (v0.8.0)
+
+- [ ] 多 Agent 协作架构（Orchestrator + Research/Planner/Reviewer）
+- [ ] 记忆升级：向量语义检索 + 景点查询工具（v0.9.0）
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
 
 ---
 
