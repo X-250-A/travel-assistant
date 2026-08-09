@@ -45,6 +45,8 @@ os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_PATH.as_posix()}"
 os.environ["DEEPSEEK_API_KEY"] = "sk-test-dummy-key"
 os.environ["DEEPSEEK_BASE_URL"] = "https://test-deepseek.example.com/v1"
 os.environ["DEEPSEEK_MODEL"] = "deepseek-v4-flash"
+# Critic 审查走真实 LLM 调用，测试环境必须关闭，避免现有测试真打 DeepSeek API
+os.environ.setdefault("CRITIC_ENABLED", "false")
 
 # ── 现在可安全导入项目模块 ──
 from backend.app.config import settings  # noqa: E402

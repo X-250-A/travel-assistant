@@ -54,6 +54,10 @@ class Settings(BaseSettings):
 
     PERMANENT_SESSION_LIFETIME: int = 60 * 60 * 24 * 30
 
+    # Critic 行程质量审查（v0.8.0）
+    CRITIC_ENABLED: bool = True         # 总开关：对新建/修改的行程方案做第二轮质量审查
+    CRITIC_MAX_REGENERATE: int = 1      # 审查不达标时的最大重生成次数（防无限循环）
+
     model_config = {
         "env_file": str(Path(__file__).parent.parent.parent / ".env"),
         "env_file_encoding": "utf-8"
