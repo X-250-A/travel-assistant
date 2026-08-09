@@ -1,9 +1,134 @@
 # 发布记录
 
-> 项目版本演进日志 · v0.1.0 → v0.7.0 · 最新版本在顶部
+> 项目版本演进日志 · v0.1.0 → v0.8.0 · 最新版本在顶部
 
 ---
 
+# Release v0.8.0 — "Critic 复盘" 🧐
+
+> 2026-08-09 · 自 v0.7.0 起（1 次发布提交）
+
+---
+
+## 概述
+
+v0.8.0 为 Agent 加上**自我批判（Critic）能力**：行程方案产出后，不再直接交给用户，而是先由第二轮 LLM 按「预算吻合 / 偏好遵守 / 可执行性」三个维度独立审查、结构化打分；不达标时带上审查反馈轻量重生成一版（上限可配，防无限循环）。这构成完整的**会思考 → 会自我纠错**故事链——Agent 从"能生成方案"升级为"能判断方案好坏并修正"。
+
+---
+
+## 后端 — Critic 复盘 🤖
+
+### 1. 判定树（插入点）
+
+Critic 插在 `handle_message` 的公共落库路径：`_extract_plan_json` 产出 `plan_data` 之后、`update_trip` 落库之前。因此**新建（_generate_plan）与修改（_apply_feedback）两条来源都自动覆盖**，无需改动任一生成函数。
+
+### 2. 三个新方法
+
+| 方法 | 职责 |
+| --- | --- |
+| `_ask_critic` | 发起第二轮 LLM 质量审查，仿 `llm_classify_intent` 用 `temperature=0` + `response_format=json_object`，返回 `{passed, scores, issues}`；失败降级返回 `None` |
+| `_regenerate_plan` | 轻量单轮流式重生成（复用 `_apply_feedback` 范式：JSON dump 进 extra_system + 逐条 issues 修正指令），服务端累积不 yield 前端 |
+| 判定树（handle_message 内） | 编排：审查 → 判定 → 条件重生成 → 落库 |
+
+### 3. 审查维度
+
+- **预算吻合（budget）**：budget 字段与用户预算是否一致，总花费是否控制在预算 80% 以内
+- **偏好遵守（preferences）**：逐条对照 `conversation.pref`（如忌口辣 → 不推荐辣菜）
+- **可执行性（feasibility）**：景点就近顺序、单日时长、交通衔接、餐饮位置
+
+审查器 system prompt 独立为 `critic-prompt.txt`（不复用 trip-agent 人设——审查员是另一个角色）。
+
+### 4. 判定树规则
+
+```
+拿到 verdict：
+├─ None（审查失败/超时/解析失败）→ 用原方案（降级不阻断主流程）
+├─ passed=True → 用原方案
+├─ passed=False 但 issues 为空 → 用原方案（无可执行修正项）
+└─ passed=False 且 issues 非空 → 重生成（循环最多 CRITIC_MAX_REGENERATE 次，
+    产出合法 JSON 即采纳；全失败则保持原方案）
+```
+
+### 5. 事件流
+
+```
+token(逐字)   … v1 完整文本（打字机）…
+thinking      我现在要使用 get_weather, budget_calculate 工具…（ReAct 阶段，原有）
+token(逐字)   … v1 剩余文本（含 ```json 块）…
+thinking      正在对行程方案做质量审查…
+thinking      审查发现部分安排需要优化，正在重新生成方案   ← 仅重生成时
+done          {"trip_id": ...}
+```
+
+v2 重生成文本**不 yield 成 token**（否则前端气泡会拼 v1+v2 含两个 JSON 块），只服务端累积、落库 v2，用 thinking 气泡提示用户。**零前端改动**。
+
+---
+
+## 修复 🐛
+
+| 问题 | 修复 |
+| --- | --- |
+| `_ask_critic` 的 try/except 只包住解析、没包住 `create` 调用 | LLM 调用抛异常时降级路径失效，改为调用+解析整体 try 包裹 |
+| 判定树未读 `CRITIC_ENABLED` 开关 | 开关定义了但没生效，条件补上 `settings.CRITIC_ENABLED` |
+
+---
+
+## 配置 ⚙️
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `CRITIC_ENABLED` | `True` | 总开关：对新建/修改的行程方案做第二轮质量审查 |
+| `CRITIC_MAX_REGENERATE` | `1` | 审查不达标时的最大重生成次数（防无限循环烧 token） |
+
+测试环境通过 conftest 设 `CRITIC_ENABLED=false` 关闭，现有测试零改动。
+
+---
+
+## 测试 ⚙️
+
+- **68 passed / 3 skipped** —— v0.7.0 基线（59）新增 9 个 Critic 用例，零回归
+- 新增 `test_critic.py` 覆盖判定树全分支：
+  - 审查通过 → 落库原方案、chat_stream 仅 1 次
+  - 审查不达标 → 重生成一次、落库 v2、chat_stream 恰好 2 次
+  - 重生成无合法 JSON → 落库 v1（防无限循环）
+  - 审查 LLM 抛异常 / 返回非 JSON → 降级原方案、流程不崩
+  - `CRITIC_ENABLED=false` / `plan_data=None` → 审查永不调用
+  - modify_trip 修改方案也走审查
+  - 审查 messages 构造（含 critic 人设 + 需求 + 偏好 + 行程 JSON）
+- **实机验证**（真实 DeepSeek + 真实 Redis）：
+  - 超预算 + 含辣菜行程 → `passed=false`，`preferences: 0`，issues 准确指出「大龙燚火锅特辣锅底违反忌口辣」+「缺第2/3天」
+  - 预算内 + 不辣 + 3 天完整行程 → `passed=true`，三维度全 100，`issues: []`
+  - 审查器能区分好方案与差方案，且给出可执行修正方向
+
+---
+
+## 完整 Changelog
+
+```
+（待提交）
+```
+
+---
+
+## 升级注意事项
+
+1. 新增配置项 `CRITIC_ENABLED`（默认 True）、`CRITIC_MAX_REGENERATE`（默认 1），无需手动配置
+2. 生产默认开启审查，每次行程多一次 LLM 调用（约 2-10s）；可设 `CRITIC_ENABLED=false` 一键关闭
+3. 无数据库迁移；`critic-prompt.txt` 为新增模板文件，随代码部署
+4. 测试默认关审查（conftest 设 `CRITIC_ENABLED=false`），不影响既有 59 用例
+
+---
+
+## 下一步展望 (v0.9.0)
+
+- [ ] 记忆升级：向量语义检索 + 景点查询工具（v0.9.0）
+- [ ] 测试覆盖、E2E、Docker 生产部署（v1.0.0）
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+---
 # Release v0.7.0 — "ReAct 觉醒" 🤖
 
 > 2026-08-07 · 自 v0.6.0 起（1 次发布提交）
