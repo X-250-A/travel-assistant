@@ -3,16 +3,7 @@
 """
 import asyncio
 import json
-import sys
-import io
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-
-# 解决 Windows 终端打印 emoji 报错
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-
-# 把项目根目录加入 Python 路径（backend 的父目录）
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from backend.app.services import llm_client as llm_client_module
 from backend.app.tools.weather import weather_tool

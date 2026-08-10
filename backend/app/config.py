@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
+
 # 创建一个能从.env文件中读取环境变量的类，方便JWT，LLM的API_KEY等的存放
 class Settings(BaseSettings):
 
@@ -17,7 +18,6 @@ class Settings(BaseSettings):
         if missing:
             raise ValueError(f"请在.env中配置：{', '.join(missing)}")
         return self
-
 
     # JWT
     SECRET_KEY: str = "change-me-to-a-secret-key"
@@ -50,17 +50,30 @@ class Settings(BaseSettings):
     # token过期时间
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440  # 24 小时
 
-    WEATHER_CACHE_TTL: int = 3600 # 1 小时
+    WEATHER_CACHE_TTL: int = 3600  # 1 小时
 
     PERMANENT_SESSION_LIFETIME: int = 60 * 60 * 24 * 30
 
     # Critic 行程质量审查（v0.8.0）
-    CRITIC_ENABLED: bool = True         # 总开关：对新建/修改的行程方案做第二轮质量审查
-    CRITIC_MAX_REGENERATE: int = 1      # 审查不达标时的最大重生成次数（防无限循环）
+    CRITIC_ENABLED: bool = True  # 总开关：对新建/修改的行程方案做第二轮质量审查
+    CRITIC_MAX_REGENERATE: int = 1  # 审查不达标时的最大重生成次数（防无限循环）
+
+    # SiliconFlow（向量记忆 embedding，可降级：无 key 时不启用）
+    SILICONFLOW_API_KEY: str = "change-me-to-a-siliconflow-api-key"
+    SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
+    SILICONFLOW_EMBEDDING_MODEL: str = "BAAI/bge-m3"
+
+    # 向量记忆
+    MEMORY_TOPK: int = 3
+    MEMORY_SIM_THRESHOLD: float = 0.45
+
+    # POI 工具
+    POI_CACHE_TTL: int = 86400
 
     model_config = {
         "env_file": str(Path(__file__).parent.parent.parent / ".env"),
         "env_file_encoding": "utf-8"
     }
+
 
 settings = Settings()

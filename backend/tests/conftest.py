@@ -156,6 +156,7 @@ async def mock_redis():
         "backend.app.routers.dependencies.get_redis",
         "backend.app.routers.chat.get_redis",
         "backend.app.tools.weather.get_redis",
+        "backend.app.tools.poi.get_redis",
     ]
     with (
         patch(patch_targets[0], return_value=mock_r),
@@ -163,6 +164,7 @@ async def mock_redis():
         patch(patch_targets[2], return_value=mock_r),
         patch(patch_targets[3], return_value=mock_r),
         patch(patch_targets[4], return_value=mock_r),
+        patch(patch_targets[5], return_value=mock_r),
     ):
         yield mock_r
 
