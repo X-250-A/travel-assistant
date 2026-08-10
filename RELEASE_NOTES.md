@@ -105,7 +105,8 @@ v2 重生成文本**不 yield 成 token**（否则前端气泡会拼 v1+v2 含�
 ## 完整 Changelog
 
 ```
-（待提交）
+4649d88 feat: v0.8.0 行程方案 Critic 复盘（自评自纠）   ← 当前
+ed94614 docs: v0.8.0 版本文档升级 — RELEASE_NOTES 记录 Critic 复盘发布
 ```
 
 ---
