@@ -3,7 +3,7 @@ TripPlannerAgent: 行程规划 Agent 核心
 
 封装行程规划 Agent 的核心决策逻辑——理解用户意图、构建 Prompt、调用 LLM、解析行程结果、处理用户反馈。
 """
-from openai.types.shared_params import response_format_text
+
 from redis.asyncio import Redis
 
 
@@ -16,6 +16,8 @@ import json
 import re
 from backend.app.config import settings
 from backend.app.memory.preferences import load_preferences, extract_preferences, save_preferences
+from backend.app.memory.vector_memory import recall_vector_memory, save_vector_memory
+from backend.app.services.embedding import EmbeddingClient
 
 MAX_TOOL_ROUND = 10
 
@@ -26,13 +28,29 @@ class TripPlannerAgent:
     def __init__(self):
         self.prompt_builder = PromptBuilder()
         self.llm_client = LLMClient()
+        self.embedding_client = EmbeddingClient()
 
     async def handle_message(self, user_input: str, conversation: ConversationManager, r: Redis):
         """Agent 主入口：接收用户消息，返回 Agent 回复（流式）"""
         conversation.pref = await load_preferences(r, conversation.user_id)
 
+        # 0.记忆召回
+        if self.embedding_client.available():
+            query_vector = (await self.embedding_client.embed([user_input]))[0]
+            memories = await recall_vector_memory(
+                r,
+                conversation.user_id,
+                query_vector,
+                settings.MEMORY_TOPK,
+                settings.MEMORY_SIM_THRESHOLD
+            )
+            conversation.memories = memories or []
+
         # 1. 保存用户消息
         await conversation.add_message("user", user_input)
+
+        # 1.5 向量记忆保存（提前到意图判断前：所有分支都会走到，含闲聊早退路径）
+        await self._save_memory(user_input, conversation, r)
 
         # 2. 意图判断及分支选择
         intent = await self.llm_classify_intent(user_input, conversation)
@@ -179,6 +197,27 @@ class TripPlannerAgent:
         print(f"[WARN] 未在回复中找到有效 JSON，原始输出前200字: {full_text[:200]}")
         return full_text, None
 
+    async def _save_memory(self, user_input: str, conversation, r: Redis):
+        """LLM 提取可跨会话复用的非结构化记忆 → embed → 写 Redis。全程降级，失败不阻塞"""
+        if not self.embedding_client.available():
+            return
+        try:
+            # ① 提取：复刻 llm_classify_intent 的 prompt 组装
+            prompt = self.prompt_builder.build_memory_extract_prompt(user_input)
+            message = [{"role": "system", "content": prompt}]
+            result = await self.llm_client.chat(message, tools=None)  # tools=None 对齐意图识别
+            data = json.loads(result.content)  # content 是返回文本
+            facts = data.get("facts", [])
+            if not data.get("should_save") or not facts:
+                return
+            # ② embed 全部 facts（一次批量）
+            vecs = await self.embedding_client.embed(facts)
+            # ③ zip 配对，逐条存
+            for fact, vec in zip(facts, vecs):
+                await save_vector_memory(r, conversation.user_id, fact, vec)
+        except Exception as e:
+            print(f"[WARN] 向量记忆保存失败，跳过：{e}")
+
     async def llm_classify_intent(self, user_input: str, conversation):
         """LLM轻量意图识别"""
         intent_classifier_prompt = self.prompt_builder.build_intent_classifier_prompt()
@@ -316,7 +355,8 @@ class TripPlannerAgent:
         messages = self.prompt_builder.build_messages(
             history=history,
             user_input=user_input,
-            pref=conversation.pref
+            pref=conversation.pref,
+            memories=conversation.memories,
         )
 
         if tool_defs is None:
@@ -480,7 +520,8 @@ class TripPlannerAgent:
         messages = self.prompt_builder.build_messages(
             history=history,
             user_input=user_input,
-            pref=conversation.pref
+            pref=conversation.pref,
+            memories=conversation.memories
         )
 
         full_text = ""

@@ -31,6 +31,7 @@ class ConversationManager:
         self.state: ConversationState = ConversationState.IDLE
         self.history_cache : list[dict] = [] # 历史对话的缓存
         self.pref : dict[str, str] | None = None
+        self.memories: list[str] = []
 
 
 
