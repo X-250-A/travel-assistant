@@ -4,12 +4,13 @@
 """
 
 import asyncio
-import pytest
 
+import pytest
 from backend.app.services.llm_client import LLMClient
 
-
-pytestmark = pytest.mark.skip(reason="依赖外部 DeepSeek API，开发时用 python -m backend.tests.test_llm 手动运行")
+pytestmark = pytest.mark.skip(
+    reason="依赖外部 DeepSeek API，开发时用 python -m backend.tests.test_llm 手动运行"
+)
 
 
 async def test_chat():
@@ -46,7 +47,7 @@ def test_count_tokens():
     client = LLMClient()
     text = "你好，请用一句话介绍北京"
     count = client.count_tokens(text)
-    print(f"=== 测试 Token 估算 ===")
+    print("=== 测试 Token 估算 ===")
     print(f"原文：{text}")
     print(f"估算 Token 数：{count}")
     print(f"字符数：{len(text)}\n")

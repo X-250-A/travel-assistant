@@ -5,78 +5,80 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from backend.app.agent.planner import TripPlannerAgent
 from backend.app.agent.conversation import ConversationManager, ConversationState
-
+from backend.app.agent.planner import TripPlannerAgent
 
 # ─── 测试用的假行程 JSON（v1）─────────────────────────────────────────────
-FAKE_TRIP_JSON = json.dumps({
-    "destination": "成都",
-    "duration": 3,
-    "budget": 3000,
-    "style": ["美食", "人文"],
-    "overview": "三日成都美食之旅",
-    "days": [
-        {
-            "day": 1,
-            "date": None,
-            "theme": "市区初探",
-            "attractions": [
-                {
-                    "name": "宽窄巷子",
-                    "type": "景点",
-                    "duration_minutes": 120,
-                    "cost_yuan": 0,
-                    "tips": "上午去人少",
-                    "transport_from_previous": "无",
-                }
-            ],
-            "meals": [
-                {
-                    "meal_type": "lunch",
-                    "suggestion": "奎星楼街吃串串，人均 50",
-                    "location_near": "宽窄巷子",
-                }
-            ],
-        }
-    ],
-    "overall_tips": "带伞",
-})
+FAKE_TRIP_JSON = json.dumps(
+    {
+        "destination": "成都",
+        "duration": 3,
+        "budget": 3000,
+        "style": ["美食", "人文"],
+        "overview": "三日成都美食之旅",
+        "days": [
+            {
+                "day": 1,
+                "date": None,
+                "theme": "市区初探",
+                "attractions": [
+                    {
+                        "name": "宽窄巷子",
+                        "type": "景点",
+                        "duration_minutes": 120,
+                        "cost_yuan": 0,
+                        "tips": "上午去人少",
+                        "transport_from_previous": "无",
+                    }
+                ],
+                "meals": [
+                    {
+                        "meal_type": "lunch",
+                        "suggestion": "奎星楼街吃串串，人均 50",
+                        "location_near": "宽窄巷子",
+                    }
+                ],
+            }
+        ],
+        "overall_tips": "带伞",
+    }
+)
 
 # v2：重生成后的版本（改了 budget，用于断言「重生成后落库 v2」）
-FAKE_TRIP_JSON_V2 = json.dumps({
-    "destination": "成都",
-    "duration": 3,
-    "budget": 2500,
-    "style": ["美食", "人文"],
-    "overview": "三日成都美食之旅（预算优化版）",
-    "days": [
-        {
-            "day": 1,
-            "date": None,
-            "theme": "市区初探",
-            "attractions": [
-                {
-                    "name": "宽窄巷子",
-                    "type": "景点",
-                    "duration_minutes": 120,
-                    "cost_yuan": 0,
-                    "tips": "上午去人少",
-                    "transport_from_previous": "无",
-                }
-            ],
-            "meals": [
-                {
-                    "meal_type": "lunch",
-                    "suggestion": "奎星楼街吃串串，人均 40",
-                    "location_near": "宽窄巷子",
-                }
-            ],
-        }
-    ],
-    "overall_tips": "带伞",
-})
+FAKE_TRIP_JSON_V2 = json.dumps(
+    {
+        "destination": "成都",
+        "duration": 3,
+        "budget": 2500,
+        "style": ["美食", "人文"],
+        "overview": "三日成都美食之旅（预算优化版）",
+        "days": [
+            {
+                "day": 1,
+                "date": None,
+                "theme": "市区初探",
+                "attractions": [
+                    {
+                        "name": "宽窄巷子",
+                        "type": "景点",
+                        "duration_minutes": 120,
+                        "cost_yuan": 0,
+                        "tips": "上午去人少",
+                        "transport_from_previous": "无",
+                    }
+                ],
+                "meals": [
+                    {
+                        "meal_type": "lunch",
+                        "suggestion": "奎星楼街吃串串，人均 40",
+                        "location_near": "宽窄巷子",
+                    }
+                ],
+            }
+        ],
+        "overall_tips": "带伞",
+    }
+)
 
 
 # ─── 辅助：mock 审查器返回 ────────────────────────────────────────────────
@@ -153,10 +155,12 @@ def _make_agent_with_v2(v1_chunks, v2_chunks, critic_response, classify_intent="
     agent.llm_client.chat = AsyncMock(return_value=mock_msg)
 
     # 第 1 次 chat_stream = v1 主生成；第 2 次 = v2 重生成
-    agent.llm_client.chat_stream = MagicMock(side_effect=[
-        _make_stream(v1_chunks),
-        _make_stream(v2_chunks),
-    ])
+    agent.llm_client.chat_stream = MagicMock(
+        side_effect=[
+            _make_stream(v1_chunks),
+            _make_stream(v2_chunks),
+        ]
+    )
 
     agent.llm_classify_intent = AsyncMock(return_value=classify_intent)
     if critic_response is not None:
@@ -185,18 +189,23 @@ def _make_conversation_manager():
     mgr.state = ConversationState.IDLE
     mgr.history_cache = []
     mgr.pref = {}
+    mgr.memories = []
     mgr.add_message = AsyncMock()
-    mgr.get_context = AsyncMock(return_value=[
-        {"role": "user", "content": "我想去成都玩三天"},
-    ])
+    mgr.get_context = AsyncMock(
+        return_value=[
+            {"role": "user", "content": "我想去成都玩三天"},
+        ]
+    )
     return mgr
 
 
 def _collect_events(agent, user_input, conv, prefs=None):
     events = []
+
     async def _run():
         async for event in agent.handle_message(user_input, conv, _make_mock_redis(prefs)):
             events.append(event)
+
     asyncio.run(_run())
     return events
 
@@ -205,8 +214,8 @@ def _collect_events(agent, user_input, conv, prefs=None):
 # 审查通过 → 落库原方案（不重生成）
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestCriticPass:
 
+class TestCriticPass:
     def test_critic_pass_keeps_original_plan(self, critic_on):
         """审查通过（passed=True）→ 落库原 FAKE_TRIP_JSON，chat_stream 只调 1 次"""
         agent = _make_agent(
@@ -237,8 +246,8 @@ class TestCriticPass:
 # 审查不达标 → 重生成一次，落库 v2
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestCriticRegenerate:
 
+class TestCriticRegenerate:
     def test_critic_fail_regenerates_once(self, critic_on):
         """审查不达标 + issues 非空 → 重生成一次，落库 v2，chat_stream 恰好 2 次"""
         agent = _make_agent_with_v2(
@@ -274,7 +283,7 @@ class TestCriticRegenerate:
             v1_chunks=[FAKE_TRIP_JSON],
             v2_chunks=[FAKE_TRIP_JSON_V2],
             critic_response=_mock_critic_response(
-                passed=True,           # 自相矛盾：说通过却给了修正项
+                passed=True,  # 自相矛盾：说通过却给了修正项
                 issues=["预算超支"],
             ),
         )
@@ -319,8 +328,8 @@ class TestCriticRegenerate:
 # 降级路径：审查失败 / 返回非法值 → 用原方案，流程不崩
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestCriticDegrade:
 
+class TestCriticDegrade:
     def test_critic_llm_error_degrades(self, critic_on):
         """审查 LLM 抛异常 → 降级用原方案，无「重新生成」thinking，流程正常 done"""
         agent = _make_agent(
@@ -374,8 +383,8 @@ class TestCriticDegrade:
 # 开关与边界：CRITIC_ENABLED 关闭 / 无 plan_data → 不触发审查
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestCriticGuard:
 
+class TestCriticGuard:
     def test_critic_disabled_skips_entirely(self):
         """CRITIC_ENABLED=False → 审查 create 永不调用，无审查 thinking"""
         settings_mock = MagicMock()
@@ -421,12 +430,15 @@ class TestCriticGuard:
 # modify_trip 修改方案也走审查
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestCriticModify:
 
+class TestCriticModify:
     def test_critic_runs_on_modify_trip(self, critic_on):
         """modify_trip 修改方案 → 审查 create 被调用一次，落库修改后方案"""
         agent = _make_agent(
-            stream_chunks=["把行程改成四天：\n" + json.dumps({"destination": "成都", "duration": 4, "budget": 3000})],
+            stream_chunks=[
+                "把行程改成四天：\n"
+                + json.dumps({"destination": "成都", "duration": 4, "budget": 3000})
+            ],
             critic_response=_mock_critic_response(passed=True),
             classify_intent="modify_trip",
         )
@@ -455,8 +467,8 @@ class TestCriticModify:
 # 审查输入构造验证：messages 应包含 critic 人设 + 需求 + 偏好 + 行程 JSON
 # ═══════════════════════════════════════════════════════════════════════════
 
-class TestAskCriticMessages:
 
+class TestAskCriticMessages:
     def test_ask_critic_sends_plan_and_prefs(self, critic_on):
         agent = _make_agent(
             stream_chunks=[FAKE_TRIP_JSON],

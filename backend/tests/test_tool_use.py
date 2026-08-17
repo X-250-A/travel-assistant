@@ -6,8 +6,8 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.app.services import llm_client as llm_client_module
-from backend.app.tools.weather import weather_tool
 from backend.app.tools import weather as weather_module
+from backend.app.tools.weather import weather_tool
 
 
 async def test_tool_call():

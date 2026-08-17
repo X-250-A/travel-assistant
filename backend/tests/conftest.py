@@ -8,12 +8,7 @@
 
 import os
 import sys
-from pathlib import Path
-
-import pytest
-import pytest_asyncio
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
+import tempfile
 from unittest.mock import AsyncMock, patch
 
 # bcrypt 5.0 与 passlib 不兼容：
@@ -22,15 +17,23 @@ from unittest.mock import AsyncMock, patch
 #      传入了 256 字节的测试秘密，导致 import 时崩溃
 # 这里在 passlib 加载前做兼容处理。
 import bcrypt as _bcrypt  # noqa: E402
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
 if not hasattr(_bcrypt, "__about__"):
     sys.modules["bcrypt"].__about__ = type(sys)("__about__")
     sys.modules["bcrypt"].__about__.__version__ = "5.0.0"
 _original_hashpw = _bcrypt.hashpw
+
+
 def _patched_hashpw(password: bytes, salt: bytes) -> bytes:
     """bcrypt 5.0 严格限制 72 字节，过长时自动截断（仅影响 passlib 内部自测）"""
     if len(password) > 72:
         password = password[:72]
     return _original_hashpw(password, salt)
+
+
 _bcrypt.hashpw = _patched_hashpw
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -38,38 +41,40 @@ _bcrypt.hashpw = _patched_hashpw
 # pydantic-settings 优先读取 os.environ，覆盖 .env 中的值
 # ═══════════════════════════════════════════════════════════════════════════
 
-TEST_DB_PATH = Path(__file__).parent / ".test.db"
-
+# 测试数据库放在系统临时目录、每次会话新建：行为与项目内文件库一致（双引擎共享同一文件），
+# 但每次运行都是全新空库，且不需要删除文件——沙箱/CI 下文件删除可能被拦截，
+# 项目目录内残留库跨会话复用时数据不干净，会引发偶发失败（如 register 撞"用户名已存在"）
+_TEST_DB_DIR = tempfile.mkdtemp(prefix="trip_agent_test_")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-tests")
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_PATH.as_posix()}"
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_TEST_DB_DIR}/test.db"
 os.environ["DEEPSEEK_API_KEY"] = "sk-test-dummy-key"
 os.environ["DEEPSEEK_BASE_URL"] = "https://test-deepseek.example.com/v1"
 os.environ["DEEPSEEK_MODEL"] = "deepseek-v4-flash"
 # Critic 审查走真实 LLM 调用，测试环境必须关闭，避免现有测试真打 DeepSeek API
 os.environ.setdefault("CRITIC_ENABLED", "false")
+# 向量记忆 embedding 走真实 SiliconFlow API；测试环境必须用假 key（含 change-me），
+# 让 EmbeddingClient.available() 返回 False，整条链路静默跳过，避免真打 SiliconFlow
+os.environ["SILICONFLOW_API_KEY"] = "sk-test-dummy-key-change-me"
 
 # ── 现在可安全导入项目模块 ──
-from backend.app.config import settings  # noqa: E402
-from backend.app.main import app as fastapi_app  # noqa: E402
-from backend.app.models.base import Base  # noqa: E402
-from backend.app.db.session import get_db  # noqa: E402
-from backend.app.db.redis import get_redis  # noqa: E402
+import backend.app.models.message  # noqa: E402, F401
+import backend.app.models.trip  # noqa: E402, F401
 
 # 显式导入所有模型，确保 Base.metadata 注册完整
 import backend.app.models.user  # noqa: E402, F401
-import backend.app.models.trip  # noqa: E402, F401
-import backend.app.models.message  # noqa: E402, F401
-
+from backend.app.config import settings  # noqa: E402
+from backend.app.db.session import get_db  # noqa: E402
+from backend.app.main import app as fastapi_app  # noqa: E402
+from backend.app.models.base import Base  # noqa: E402
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 数据库 fixtures
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest_asyncio.fixture(scope="session")
 async def test_engine():
-    """会话级：创建测试数据库引擎 + 建表 + 结束时清理文件"""
-    TEST_DB_PATH.unlink(missing_ok=True)
-
+    """会话级：创建测试数据库引擎 + 建表（每次会话全新临时库，无需清理）"""
     from sqlalchemy.ext.asyncio import create_async_engine
 
     engine = create_async_engine(
@@ -82,7 +87,6 @@ async def test_engine():
     yield engine
 
     await engine.dispose()
-    TEST_DB_PATH.unlink(missing_ok=True)
 
 
 @pytest_asyncio.fixture
@@ -108,9 +112,11 @@ async def db_session(test_engine):
 # FastAPI 测试客户端 fixture
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest_asyncio.fixture
 async def async_client(db_session):
     """httpx AsyncClient，依赖注入替换为测试 session"""
+
     async def _override_get_db():
         yield db_session
 
@@ -124,6 +130,7 @@ async def async_client(db_session):
 # ═══════════════════════════════════════════════════════════════════════════
 # 认证辅助
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 @pytest_asyncio.fixture(autouse=True)
 async def mock_redis():
@@ -167,6 +174,7 @@ async def mock_redis():
         patch(patch_targets[5], return_value=mock_r),
     ):
         yield mock_r
+
 
 async def _register_and_login(client: AsyncClient, username: str, password: str) -> str:
     """注册用户并登录，返回 'Bearer <token>' 字符串"""

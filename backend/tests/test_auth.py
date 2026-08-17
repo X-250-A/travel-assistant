@@ -1,6 +1,5 @@
 """认证模块测试 — POST /api/auth/register | /login | GET /api/auth/me"""
 
-import pytest
 from httpx import AsyncClient
 
 

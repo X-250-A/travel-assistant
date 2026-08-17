@@ -3,9 +3,7 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from httpx import AsyncClient
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 辅助工具
@@ -147,7 +145,7 @@ class TestChatEndpoint:
                 json={"message": "把第二个景点改一下", "trip_id": trip_id},
                 headers={"Authorization": auth_headers},
             )
-            assert resp2.status_code == 200, resp.text
+            assert resp2.status_code == 200, resp2.text
 
             events2, _ = await _collect_sse_events(resp2)
             assert len(events2) >= 2
