@@ -1,9 +1,147 @@
 # 发布记录
 
-> 项目版本演进日志 · v0.1.0 → v0.8.0 · 最新版本在顶部
+> 项目版本演进日志 · v0.1.0 → v0.9.0 · 最新版本在顶部
 
 ---
 
+# Release v0.9.0 — "记忆向量化 + 景点检索" 🧭
+
+> 2026-08-10 · 自 v0.8.0 起（POI 部分 1 次发布提交；向量记忆部分待提交）
+
+---
+
+## 概述
+
+v0.9.0 双线并进，补齐记忆系统的最后一块拼图，并让 Agent 从"只查天气"升级为"能找景点"：
+
+1. **景点查询工具 `search_poi`**：接入高德 POI 搜索，Agent 规划行程时可直接查询目标城市的真实景点（名称/地址/评分/人均消费），不再全靠 LLM 记忆编造景点。
+2. **向量语义记忆**：LLM 从对话中提取非结构化事实（"用户上次去过成都""妈妈不吃香菜"）→ bge-m3 嵌入 → Redis 持久化 → 下次对话按语义相似度召回注入上下文。与 v0.6.0 的规则偏好形成**双轨记忆**：规则管低熵结构化偏好（精确、可解释），向量管高熵非结构化事实（模糊、语义）。
+
+---
+
+## 后端 — 景点查询 + 向量记忆 🤖
+
+### 1. 景点查询工具 `search_poi`（已提交 78f2b26）
+
+`tools/poi.py` — 高德 v3 `place/text` 景点搜索：
+
+- 请求参数：`keywords`（景点关键词）+ `city`（城市）+ `citylimit=true`（严格限定城市，防止跨城结果污染）
+- 输出格式化：名称 / 地址 / 评分 / 人均消费 / 简介摘要，供 LLM 直接用于行程编排
+- **Redis 读穿缓存**：key = `poi:{city}:{keywords}`，TTL = `POI_CACHE_TTL`（默认 86400s = 1 天），相同查询二次命中零外部调用
+- **三层健壮性降级**：
+  1. 无 `AMAP_API_KEY` → 返回提示文本"高德搜索未配置"，工具不炸
+  2. 网络异常 / 超时 → 返回友好错误信息，Agent 可继续走 LLM 兜底
+  3. 高德业务失败（无结果/配额超限）→ 结构化错误提示，可读可解析
+- 注册进 `ALL_TOOLS`（第 4 个工具），系统提示词新增引导："查询真实景点时使用 search_poi"
+
+### 2. 向量语义记忆（待提交，工作区在制品）
+
+**存储链路**（`memory/vector_memory.py` + `services/embedding.py`）：
+
+```
+用户消息
+  │
+  ▼
+① LLM 提取（memory-extract-prompt.txt）
+  │   判断是否值得存 + 抽取事实列表 facts[]（如 "用户妈妈不吃香菜"）
+  ▼
+② bge-m3 批量嵌入（SiliconFlow API，OpenAI 兼容 SDK）
+  │
+  ▼
+③ 逐条写入 Redis List：user:memories:{user_id}
+  │   元素 = {"text": "事实文本", "vector": [1024 维浮点]}
+  ▼
+（下次对话）
+  │
+④ 召回：KNN 全量余弦相似度（手写 cosine_similarity）
+  │   过滤 score ≥ MEMORY_SIM_THRESHOLD → 按相似度降序 → 截取 top MEMORY_TOPK
+  ▼
+⑤ 注入 conversation.memories → PromptBuilder 拼进 System Prompt（"以下是与用户相关的历史记忆"）
+```
+
+**关键设计决策**：
+
+| 决策 | 理由 |
+| --- | --- |
+| Redis List + KNN 全量遍历 | 单用户记忆条数少（几十条以内），手写余弦相似度零依赖、可解释；是 **MVP 验证方案**，记忆量大后可平滑迁移 Redis Search（`FT.CREATE` 向量索引）或独立向量库 |
+| 保存提前到意图判断前 | 所有分支（new_trip / modify_trip / ask_question / 闲聊早退）都会走到，不漏存 |
+| 全链路降级 | 无 `SILICONFLOW_API_KEY` → `EmbeddingClient.available()=False` → 召回与保存全部跳过，主流程零影响；保存失败仅 `[WARN]` 日志，不阻塞对话 |
+| 提取用 LLM 而非规则 | 非结构化事实（"妈妈不吃香菜"）无法用正则覆盖，LLM 判断 + 抽取更通用；复刻 `llm_classify_intent` 的 prompt 组装范式，无额外 LLM 实例 |
+
+### 3. 双轨记忆体系
+
+| 维度 | 规则偏好（v0.6.0） | 向量语义记忆（v0.9.0） |
+| --- | --- | --- |
+| 提取方式 | 正则（忌口/预算/出行/节奏） | LLM 判断 + 事实抽取 |
+| 数据类型 | 低熵结构化偏好 | 高熵非结构化事实 |
+| 存储 | Redis Hash `user:preferences:{user_id}` | Redis List `user:memories:{user_id}` |
+| 召回 | 全量注入 System Prompt | 语义相似度 KNN 召回 top-k |
+| 成本 | 零 API 调用 | 每消息 1 次 LLM + 1 次嵌入（可降级） |
+| 定位 | 必须严格遵守的硬约束 | 辅助参考的历史背景 |
+
+---
+
+## 修复 🐛
+
+| 问题 | 修复 |
+| --- | --- |
+| `test_tool_use.py` 模块级 `sys.stdout` 包装导致 pytest capture 崩盘 | 移除包装，改用 pytest 原生断言（v0.9.0 提交内） |
+| 沙箱 / CI 下 `.test.db` 删除被拦截 → 跨会话残留旧库 → 偶发 `register 400 用户名已存在` | 测试库迁移到系统临时目录，每次 pytest 进程全新空库、不依赖删除（本次收尾） |
+| `test_chat.py` 断言消息复制粘贴 bug（`resp.text` 应为 `resp2.text`） | 修正——失败时会抛 `NameError` 掩盖真实原因（本次收尾） |
+| 历史测试文件 12+ 处 lint 债务（unused import / 超长行 / 多余 f-string） | 全部清理，`ruff check backend/tests/` 全绿（本次收尾） |
+
+---
+
+## 配置 ⚙️
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `SILICONFLOW_API_KEY` | `change-me-...` | SiliconFlow Key；不配置则向量记忆整体降级关闭 |
+| `SILICONFLOW_BASE_URL` | `https://api.siliconflow.cn/v1` | 嵌入服务地址 |
+| `SILICONFLOW_EMBEDDING_MODEL` | `BAAI/bge-m3` | 嵌入模型 |
+| `MEMORY_TOPK` | `3` | 向量记忆召回条数上限 |
+| `MEMORY_SIM_THRESHOLD` | `0.45` | 召回相似度阈值（低于此分过滤） |
+| `POI_CACHE_TTL` | `86400` | POI 查询缓存时长（秒，1 天） |
+
+---
+
+## 测试 ⚙️
+
+- v0.9.0 提交时：**78 passed / 3 skipped** —— 新增 `test_poi.py`（9 用例）覆盖纯函数 + 完整流程（含 mock 高德 API），`conftest.py` 补 `poi.get_redis` patch 点
+- 本次收尾补齐：`test_vector_memory.py`（14 例：cosine_similarity / save / recall 往返 / threshold / topk / user 隔离）、`test_memory_integration.py`（9 例：planner 记忆链路）、`test_embedding.py`（7 例：available 降级 / embed 批量 / 构造参数）
+- 当前全量：**106 passed / 3 skipped**（连跑三次稳定，0 失败 0 错误），`ruff check backend/tests/` 全绿
+
+---
+
+## 完整 Changelog
+
+```
+78f2b26 feat: v0.9.0 POI 景点查询工具（search_poi）+ 高德集成 + 测试   ← POI 部分已提交
+<待提交> 向量记忆：vector_memory.py + embedding.py + memory-extract-prompt.txt + planner 接线 + 测试
+```
+
+> ⚠️ **待提交提醒**：向量记忆相关文件（`memory/vector_memory.py`、`services/embedding.py`、`services/prompts/memory-extract-prompt.txt`、`planner.py`/`prompt_builder.py`/`conversation.py` 的接线改动，以及 3 个新测试文件）目前是工作区在制品，尚未 commit。
+
+---
+
+## 升级注意事项
+
+1. 新增配置项均有默认值；**不配置 `SILICONFLOW_API_KEY` 也能跑**——向量记忆自动降级关闭，其余功能不受影响
+2. 高德 `AMAP_API_KEY` 需在控制台开通 **Web 服务** 权限（搜索 POI）；无 key 时 `search_poi` 返回提示文本
+3. 无数据库迁移；Redis 新增 `user:memories:{user_id}`（List）key，随首次对话自动创建
+4. 向量记忆为 MVP 方案（KNN 全量遍历），记忆量增长后建议迁移 Redis Search 向量索引或专用向量库（详见架构文档 §4.1.2）
+
+---
+
+## 下一步展望 (v1.0.0)
+
+- [ ] 测试覆盖（补 critic/planner 边界）、E2E（Playwright）、Docker 生产部署 + CI/CD
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+---
 # Release v0.8.0 — "Critic 复盘" 🧐
 
 > 2026-08-09 · 自 v0.7.0 起（1 次发布提交）
@@ -122,7 +260,7 @@ ed94614 docs: v0.8.0 版本文档升级 — RELEASE_NOTES 记录 Critic 复盘�
 
 ## 下一步展望 (v0.9.0)
 
-- [ ] 记忆升级：向量语义检索 + 景点查询工具（v0.9.0）
+- [x] 记忆升级：向量语义检索 + 景点查询工具（v0.9.0）
 - [ ] 测试覆盖、E2E、Docker 生产部署（v1.0.0）
 
 ---

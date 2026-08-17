@@ -28,7 +28,7 @@ async def lifespan(app: FastAPI):
     yield
     await close_redis()
 
-app = FastAPI(title="旅游助手 Agent API", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="旅游助手 Agent API", version="0.8.0", lifespan=lifespan)
 
 
 

@@ -2,16 +2,18 @@
 
 基于 DeepSeek V4 大模型的智能旅游规划助手，通过多轮对话理解用户偏好，自动生成结构化行程方案。
 
-> **最新版本**: [v0.5.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.5.0) — "Redis 上云" 🚀 | [更新日志](RELEASE_NOTES.md)
+> **最新版本**: v0.9.0 — "记忆升级 + POI 景点查询" 🧠 | [更新日志](RELEASE_NOTES.md)
 
 ## 功能概览
 
-- **用户认证** — JWT 注册/登录，bcrypt 密码哈希
-- **AI 多轮对话** — SSE 流式输出，Agent 编排工具调用，LLM 意图分类 + 闲聊分流
-- **行程生成** — LLM 根据对话内容生成包含每日安排、景点推荐、出行贴士的结构化行程 JSON，支持确认/草稿状态
-- **天气预报** — 通过工具调用自动查询目的地天气，融入行程建议
-- **预算估算** — 根据天数/人数/档次（经济/舒适/豪华）自动计算旅行预算
-- **历史行程管理** — 行程列表、详情查看、删除
+- **用户认证** — JWT 注册/登录，bcrypt 密码哈希，Token 黑名单主动吊销
+- **AI 多轮对话** — SSE 流式输出，LLM 意图分类（新建/修改/闲聊）+ 关键词兜底
+- **ReAct 推理与自纠** — Thought-Action-Observation 循环 + 反思注入 + Critic 二轮质量审查（预算/偏好/可执行性），不达标自动重生成
+- **工具调用体系** — 可插拔注册中心：天气预报、预算估算、跨城交通规划、景点查询（高德 POI）
+- **行程生成** — LLM 生成结构化行程 JSON（每日安排/景点推荐/出行贴士），支持确认/草稿状态
+- **记忆系统** — 用户偏好跨会话持久化（Redis）+ 向量语义记忆召回（bge-m3 嵌入）
+- **安全与限流** — Redis 滑动窗口限流（防暴力破解）+ 工具结果缓存（防缓存雪崩）
+- **历史行程管理** — 行程列表、详情查看、编辑、删除
 
 ## 技术栈
 
@@ -157,11 +159,15 @@ docker-compose logs -f
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v0.9.0 | 2026-08-17 | POI 景点查询工具（高德）+ 向量语义记忆（bge-m3 嵌入 + KNN 召回） |
+| [v0.8.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.8.0) | 2026-08-09 | 行程方案 Critic 复盘（自评自纠）—— 二轮审查 + 条件重生成 |
+| [v0.7.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.7.0) | 2026-08-07 | ReAct 推理循环（Thought-Action-Observation）+ 反思机制 |
+| [v0.6.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.6.0) | 2026-08-04 | Agent 记忆系统（偏好提取 + 跨会话持久化）+ 行程确认/编辑接后端 |
 | [v0.5.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.5.0) | 2026-08-02 | Redis 集成：Token 黑名单 + 滑动窗口限流 + 天气缓存 |
 | [v0.4.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.4.0) | 2026-07-29 | 前端 UI 全面优化 + 后端工具注册机制重构 + 预算计算工具 |
-| v0.3.0 | 2026-07-27 | LLM 意图分类 + 闲聊分流 + 工具调用循环防护 |
-| v0.2.0 | 2026-07-25 | Tool Calling 机制 + 天气预报工具 |
-| v0.1.0 | 2026-07-24 | MVP 发布 |
+| v0.3.0 | 2026-07-28 | LLM 意图分类 + 闲聊分流 + 工具调用循环防护 |
+| v0.2.0 | 2026-07-28 | Tool Calling 机制 + 天气预报工具 |
+| v0.1.0 | 2026-07-28 | MVP 发布 |
 
 详见 [RELEASE_NOTES.md](RELEASE_NOTES.md)
 

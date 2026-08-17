@@ -1,6 +1,6 @@
 # 旅游助手 Agent API 接口规范
 
-> v0.6.0 | Base URL: `http://localhost:8000` | Protocol: REST JSON + SSE Streaming
+> v0.9.0 | Base URL: `http://localhost:8000` | Protocol: REST JSON + SSE Streaming
 
 ---
 
@@ -269,6 +269,14 @@ data: {"type":"token","content":"的，我为您规划..."}
 data: {"type":"token","content":"\n\n## 第一天：西湖经典环湖"}
 ```
 
+**`thinking` 事件** — Agent 内部过程提示（v0.7.0 起）：工具调用/内部反思/质量审查进行中，**不进入消息文本**，前端渲染为"🤔 Agent 正在思考"气泡：
+
+```
+data: {"type":"thinking","content":"我现在要使用 get_weather, search_poi 工具查询信息..."}
+
+data: {"type":"thinking","content":"正在对行程方案做质量审查…"}
+```
+
 **`done` 事件** — 流结束，携带 trip_id 供前端关联：
 
 ```
@@ -293,14 +301,17 @@ POST /api/chat
   ├─ ② 初始化 ConversationManager（状态机 + 历史消息）
   │
   ├─ ③ TripPlannerAgent.handle_message()
+  │     ├─ 0. 记忆加载：规则偏好（Redis Hash）+ 向量记忆召回（相似度 top-k，可用时）
+  │     ├─ 0.5 向量记忆保存：LLM 抽取事实 → bge-m3 嵌入 → Redis List（全分支覆盖）
   │     ├─ LLM 意图分类 (new_trip / modify_trip / ask_question)
-  │     ├─ 生成行程：工具调用循环 + 流式输出
+  │     ├─ 生成行程：ReAct 工具调用循环（≤10 轮）+ 流式输出
   │     ├─ 调整行程：当前 JSON + 反馈 → LLM 局部修改
-  │     └─ 闲聊：直接流式对话
+  │     ├─ 闲聊：直接流式对话
+  │     └─ 4.5 Critic 质量审查（v0.8.0）：不达标 → 带 issues 轻量重生成
   │
   ├─ ④ JSON 解析 + plan_data 落库
   │
-  └─ ⑤ SSE 流式返回每条 token
+  └─ ⑤ SSE 流式返回每条 token / thinking 事件
 ```
 
 ##### 前端消费示例
@@ -335,6 +346,9 @@ async function sendMessage(message: string, tripId: number | null, token: string
       switch (event.type) {
         case "token":
           appendToChat(event.content);      // 累积渲染
+          break;
+        case "thinking":
+          setThinking(event.content);        // 渲染"🤔 正在思考"气泡（不进入消息文本）
           break;
         case "done":
           setCurrentTripId(event.data.trip_id);  // 记住行程 ID
@@ -571,6 +585,7 @@ async function sendMessage(message: string, tripId: number | null, token: string
 | `weather` | "成都下周天气怎么样" | 温度/湿度/风力/天气描述 |
 | `budget_calculate` | "预算大概多少" | 住宿/餐饮/交通/门票/其他分项 |
 | `transport_guiding` | "北京到杭州怎么去" | 距离/耗时/推荐方式/费用估算 |
+| `search_poi` | "杭州有哪些必去景点" | 景点名称/地址/评分/人均消费（高德 POI，v0.9.0） |
 
 **工具调用上限**：单次对话最多 10 轮工具调用，超过后强制生成回复（防止死循环）。
 
@@ -630,15 +645,24 @@ function handleSSEError(event: { type: "error"; detail: string }) {
 | `LLM_READ_TIMEOUT` | LLM 读取超时（秒）| `45.0` |
 | `LLM_REQUEST_TIMEOUT` | LLM 请求总超时（秒）| `90.0` |
 | `CORS_ORIGINS` | 允许的跨域来源 | `http://localhost:3000` |
-| `REDIS_URL` | Redis 连接串（黑名单/限流/缓存/偏好） | `redis://localhost:6379/0` |
+| `REDIS_URL` | Redis 连接串（黑名单/限流/缓存/偏好/向量记忆） | `redis://192.168.126.128:6379/0` |
 | `REDIS_TOKEN_BLACKLIST_DB` | JWT 黑名单所在 Redis DB | `1` |
 | `RATE_LIMIT_REQUESTS` | 滑动窗口限流阈值（次/窗） | `30` |
 | `RATE_LIMIT_WINDOW` | 限流窗口（秒） | `60` |
 | `WEATHER_CACHE_TTL` | 天气缓存时长（秒） | `3600` |
 | `PERMANENT_SESSION_LIFETIME` | 用户偏好等长期数据 TTL（秒） | `2592000` |
+| `MAX_CONTEXT_TOKENS` | 上下文窗口 Token 上限（历史裁剪阈值） | `6000` |
+| `CRITIC_ENABLED` | Critic 质量审查总开关（v0.8.0） | `True` |
+| `CRITIC_MAX_REGENERATE` | 审查不达标最大重生成次数（防死循环） | `1` |
+| `SILICONFLOW_API_KEY` | SiliconFlow Key，向量记忆嵌入（v0.9.0） | 无则不启用向量记忆 |
+| `SILICONFLOW_BASE_URL` | 嵌入服务地址 | `https://api.siliconflow.cn/v1` |
+| `SILICONFLOW_EMBEDDING_MODEL` | 嵌入模型 | `BAAI/bge-m3` |
+| `MEMORY_TOPK` | 向量记忆召回条数上限 | `3` |
+| `MEMORY_SIM_THRESHOLD` | 向量记忆召回相似度阈值 | `0.45` |
+| `POI_CACHE_TTL` | POI 景点查询缓存时长（秒） | `86400` |
 
 ---
 
 > **文档元信息**
-> 版本：v0.6.0 | 更新日期：2026-08-04 | 代码版本：3064145
+> 版本：v0.9.0 | 更新日期：2026-08-17 | 代码版本：78f2b26（POI 已提交；向量记忆部分为工作区在制品）
 > 对应架构文档：旅游助手Agent架构设计.md
