@@ -30,3 +30,6 @@ Thumbs.db
 
 # 手动验证脚本（需真实 Redis，不纳入版本库）
 _test_*.py
+
+# 工作区本地数据（记忆/状态，不入版本库）
+.workbuddy/
