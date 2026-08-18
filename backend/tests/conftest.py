@@ -55,6 +55,7 @@ os.environ.setdefault("CRITIC_ENABLED", "false")
 # 向量记忆 embedding 走真实 SiliconFlow API；测试环境必须用假 key（含 change-me），
 # 让 EmbeddingClient.available() 返回 False，整条链路静默跳过，避免真打 SiliconFlow
 os.environ["SILICONFLOW_API_KEY"] = "sk-test-dummy-key-change-me"
+os.environ["AMAP_API_KEY"] = "test-amap-key-for-tests"
 
 # ── 现在可安全导入项目模块 ──
 import backend.app.models.message  # noqa: E402, F401

@@ -29,6 +29,8 @@ export default defineConfig({
                 DATABASE_URL: "sqlite+aiosqlite:///./e2e_test.db",
                 REDIS_URL: "redis://127.0.0.1:6379/15?protocol=2", // protocol=2 兼容 Redis 5（HELLO 3 是 Redis 6+）
                 SILICONFLOW_API_KEY: "change-me", // 禁用真实 embedding（走降级）
+                DEEPSEEK_API_KEY: "test-deepseek-key",
+                DEEPSEEK_BASE_URL: "https://test-deepseek.example.com/v1",
             },
         },
         {
