@@ -147,7 +147,8 @@ export async function sendMessage(
                     onToken?.(data.content);
                     break;
                 case "done":
-                    onDone?.(data.trip_id);
+                    // 后端格式：{"type": "done", "data": {"trip_id": N}}
+                    onDone?.(data.data?.trip_id);
                     break;
                 case "error":
                     onError?.(data.detail);

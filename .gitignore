@@ -33,3 +33,8 @@ _test_*.py
 
 # 工作区本地数据（记忆/状态，不入版本库）
 .workbuddy/
+
+# E2E（Playwright 产物：失败截图/trace/HTML 报告，不入版本库）
+frontend/test-results/
+frontend/playwright-report/
+frontend/playwright/.cache/

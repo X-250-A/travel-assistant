@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     DEEPSEEK_BASE_URL: str = "change-me-to-a-deepseeek-base-url"
     DEEPSEEK_MODEL: str = "deepseek-v4-flash"
 
+    # LLM 提供方：deepseek（真实调用）/ mock（E2E 测试专用，返回预设响应）
+    LLM_PROVIDER: str = "deepseek"
+
     # weather_tool
     WEATHER_API_KEY: str = "change-me-to-a-weather-api-key"
 
