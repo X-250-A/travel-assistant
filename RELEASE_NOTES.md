@@ -1,12 +1,121 @@
 # 发布记录
 
-> 项目版本演进日志 · v0.1.0 → v0.9.0 · 最新版本在顶部
+> 项目版本演进日志 · v0.1.0 → v1.0.0 · 最新版本在顶部
 
 ---
 
+# Release v1.0.0 — "全链路 E2E 竣工" 🎯
+
+> 2026-08-18 · 自 v0.9.0 起（1 次发布提交 + 并入远端 v0.8.0 文档同步的 merge）
+
+---
+
+## 概述
+
+v1.0.0 为项目补上**端到端测试基建**，打通"注册 → 聊天生成行程（SSE 流式）→ 列表 → 详情"的完整用户旅程，并顺手修掉一个隐藏在前端 SSE 解析里的关键 bug。至此项目具备**可验证的交付质量**——此前各版本靠单元测试 + 手动真机验证，现在一条命令即可在浏览器里全自动跑通核心业务闭环，这也是面试时能演示的硬证据。
+
+---
+
+## 新增 — E2E 全链路测试基建 🧪
+
+### 1. Mock LLM（唯一受控点）
+
+新增 `backend/app/services/mock_llm.py` —— E2E 专用 mock LLM，**只 mock 不可控的 LLM 回复，其余链路全真**：
+
+| 调用点 | 路由特征 | 预设返回 |
+| --- | --- | --- |
+| 意图分类 | `意图分类器` | `{"intent": "new_trip"}` |
+| 记忆提取 | `记忆提取器` | `{"should_save": false, "facts": []}` |
+| Critic 审查 | `行程质量审查员` | `{"passed": true, "scores": {...}, "issues": []}` |
+| 行程生成 | 其余（chat/chat_stream） | 固定行程 Markdown（含 `\`\`\`json` 块，供 `_extract_plan_json` 解析） |
+
+- 行程模板字段对齐前端 `TripDetail.tsx`（destination / days[] / overall_tips），确保列表卡片与详情页能真实渲染
+- 流式输出分两次 yield，避免前端 `+=` 拼接丢失空格
+- `MockOpenAIClient` 兼容底层 SDK（意图分类 / Critic 直调 `client.chat.completions.create`）
+
+### 2. `LLM_PROVIDER=mock` 开关
+
+- `config.py` 新增 `LLM_PROVIDER`（默认 `deepseek`，`mock` 为 E2E 专用）
+- `llm_client.py` 在 `__init__` / `chat` / `chat_stream` 三处加 mock 分支：不建真实连接、不烧 token、零外部依赖
+- **生产/开发零影响**：默认仍是真实 DeepSeek，开关只在 E2E 时打开
+
+### 3. Playwright 全链路用例
+
+`frontend/e2e/trip-journey.spec.ts` —— 单文件覆盖完整用户旅程：
+
+```
+注册（自动登录）→ 首页输入需求 → SSE 流式出行程 → done 事件跳转
+→ 列表页出现新行程（📍 成都）→ 详情页渲染每日安排（第 1 天 / 武侯祠 / 宽窄巷子 / 预算指标）
+```
+
+`playwright.config.ts` 的 `webServer` 自动拉起后端 + 前端：
+
+- 后端：`LLM_PROVIDER=mock` + 独立测试库（`e2e_test.db`）+ **Redis DB 15**（隔离开发数据）
+- 前端：`next dev --webpack`（绕过 Windows Turbopack EPERM）
+- `REDIS_URL?protocol=2` 兼容 Redis 5（HELLO 3 协议是 Redis 6+）
+- 失败自动录 trace / 截图，`npx playwright show-trace` 可回放
+
+---
+
+## 修复 🐛
+
+| 问题 | 修复 |
+| --- | --- |
+| 前端 SSE `done` 事件 `trip_id` 永远 undefined → `handleTripCreated` 不触发，行程生成后 URL 不跳转 | 修正读取路径为 `data.data?.trip_id`（后端格式为 `{"type": "done", "data": {"trip_id": N}}`） |
+
+> 这个 bug 藏在 `api.ts` 里，手动操作时 UI 卡在"已生成但没跳转"的体验模糊地带，**只有 E2E 能把这类"看着正常实则断链"的问题揪出来**——正是 E2E 价值的绝佳例证。
+
+---
+
+## 配置 ⚙️
+
+| 配置项 | 默认值 | 说明 |
+| --- | --- | --- |
+| `LLM_PROVIDER` | `deepseek` | LLM 提供方：`deepseek`（真实调用）/ `mock`（E2E 测试专用） |
+
+新增 `.gitignore` 忽略 Playwright 产物（test-results / playwright-report）。
+
+---
+
+## 测试 ⚙️
+
+- 后端单元测试基线：**106 passed / 3 skipped**（v0.9.0）
+- E2E：`playwright test` 一条命令全自动跑通"注册 → 聊天 → 列表 → 详情"闭环
+- 前置条件：本机 6379 有一个 Redis 服务（E2E 用 DB 15，隔离开发数据）
+
+---
+
+## 完整 Changelog
+
+```
+c523f81 merge: 并入远端 v0.8.0 文档同步（README/FastAPI version/版本日期统一）   ← 并入
+4359126 feat(e2e): v1.0.0 E2E 基建 - mock LLM + Playwright 全链路验证   ← 当前
+```
+
+---
+
+## 升级注意事项
+
+1. 新增配置项 `LLM_PROVIDER`（默认 `deepseek`），无需手动配置；E2E 运行时设为 `mock`
+2. E2E 需要 Playwright（`npx playwright install chromium`）+ 本机 Redis（DB 15）
+3. 无数据库迁移；无 API breaking changes
+4. `api.ts` 的 `done` 事件解析修正为 `data.data?.trip_id`，前端需同步此变更（`frontend/` 已内置）
+
+---
+
+## 下一步展望
+
+- [x] E2E 全链路验证（Playwright）
+- [ ] Docker 生产部署 + CI/CD（GitHub Actions：push 自动跑单测 + E2E）
+
+---
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+---
 # Release v0.9.0 — "记忆向量化 + 景点检索" 🧭
 
-> 2026-08-10 · 自 v0.8.0 起（POI 部分 1 次发布提交；向量记忆部分待提交）
+> 2026-08-10 · 自 v0.8.0 起（POI 部分 1 次发布提交 + 向量记忆部分 3 次提交 + 1 次文档同步）
 
 ---
 
@@ -34,7 +143,7 @@ v0.9.0 双线并进，补齐记忆系统的最后一块拼图，并让 Agent 从
   3. 高德业务失败（无结果/配额超限）→ 结构化错误提示，可读可解析
 - 注册进 `ALL_TOOLS`（第 4 个工具），系统提示词新增引导："查询真实景点时使用 search_poi"
 
-### 2. 向量语义记忆（待提交，工作区在制品）
+### 2. 向量语义记忆
 
 **存储链路**（`memory/vector_memory.py` + `services/embedding.py`）：
 
@@ -116,11 +225,13 @@ v0.9.0 双线并进，补齐记忆系统的最后一块拼图，并让 Agent 从
 ## 完整 Changelog
 
 ```
-78f2b26 feat: v0.9.0 POI 景点查询工具（search_poi）+ 高德集成 + 测试   ← POI 部分已提交
-<待提交> 向量记忆：vector_memory.py + embedding.py + memory-extract-prompt.txt + planner 接线 + 测试
+78f2b26 feat: v0.9.0 POI 景点查询工具（search_poi）+ 高德集成 + 测试
+26da9ae feat: v0.9.0 向量语义记忆系统（bge-m3 嵌入 + KNN 召回）
+775df37 test: 补齐 v0.9.0 测试覆盖 + 测试基建加固 + lint 清理
+1419f68 docs: 文档同步至 v0.9.0 + 版本标注更新
 ```
 
-> ⚠️ **待提交提醒**：向量记忆相关文件（`memory/vector_memory.py`、`services/embedding.py`、`services/prompts/memory-extract-prompt.txt`、`planner.py`/`prompt_builder.py`/`conversation.py` 的接线改动，以及 3 个新测试文件）目前是工作区在制品，尚未 commit。
+> ✅ 向量记忆相关文件（`memory/vector_memory.py`、`services/embedding.py`、`memory-extract-prompt.txt`、planner/prompt_builder/conversation 接线、3 个新测试文件）已随上述提交入库，v0.9.0 完整交付。
 
 ---
 
@@ -135,7 +246,8 @@ v0.9.0 双线并进，补齐记忆系统的最后一块拼图，并让 Agent 从
 
 ## 下一步展望 (v1.0.0)
 
-- [ ] 测试覆盖（补 critic/planner 边界）、E2E（Playwright）、Docker 生产部署 + CI/CD
+- [x] 测试覆盖（补 critic/planner 边界）、E2E（Playwright）✅ → 已随 v1.0.0 完成
+- [ ] Docker 生产部署 + CI/CD
 
 ---
 
