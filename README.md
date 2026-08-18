@@ -4,6 +4,8 @@
 
 > **最新版本**: v1.0.0 — "全链路 E2E 竣工" 🎯 | [更新日志](RELEASE_NOTES.md)
 
+[![CI](https://github.com/X-250-A/travel-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/X-250-A/travel-assistant/actions/workflows/ci.yml)
+
 ## 功能概览
 
 - **用户认证** — JWT 注册/登录，bcrypt 密码哈希，Token 黑名单主动吊销
