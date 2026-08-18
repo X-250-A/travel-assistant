@@ -1,0 +1,91 @@
+name: CI
+
+# 触发条件：push 到任意分支 + 打开/更新 PR 都运行
+on:
+  push:
+  pull_request:
+
+# 并发控制：同一分支的连续运行自动取消旧的那次，避免排队白跑
+concurrency:
+  group: ${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------- Job 1：后端单元/集成测试（pytest，106 passed / 3 skipped） ----------
+  backend-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: 安装 Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: 同步依赖（含 dev 组）
+        run: uv sync
+
+      # 测试无外部依赖：conftest.py 已隔离测试库/禁用真实 LLM/embedding 降级
+      - name: 运行后端测试
+        run: uv run pytest
+
+  # ---------- Job 2：前端 + 后端全链路 E2E（Playwright） ----------
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: 安装 Python 3.14
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: 同步 Python 依赖（含 dev 组）
+        run: uv sync
+
+      - name: 安装 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: 安装前端依赖
+        working-directory: frontend
+        run: npm ci
+
+      - name: 安装 Playwright 浏览器（含系统依赖）
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      # E2E 硬前置：REDIS_URL 写死 127.0.0.1:6379，镜像预装二进制但默认未启动，必须显式拉起
+      - name: 启动 Redis（容错序列）
+        run: |
+          redis-server --daemonize yes || \
+          sudo service redis-server start || \
+          (sudo apt-get update && sudo apt-get install -y redis-server && redis-server --daemonize yes)
+
+      - name: 验证 Redis 可用
+        run: redis-cli ping
+
+      # webServer 配置会自动拉起后端（mock LLM）+ 前端，无需手动起服务
+      - name: 运行 E2E 测试
+        working-directory: frontend
+        run: npx playwright test
+
+      # 失败也上传报告，方便查看截图/trace
+      - name: 上传 Playwright 报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          if-no-files-found: ignore
