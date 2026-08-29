@@ -4,7 +4,7 @@ LLMClient: DeepSeek API 封装（重试、超时、流式）
 
 import httpx
 import tiktoken
-from backend.app.config import settings
+from backend.app import settings
 from backend.app.services import mock_llm
 from openai import AsyncOpenAI
 

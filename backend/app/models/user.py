@@ -1,7 +1,7 @@
 """
 User 实体
 """
-from backend.app.models.base import Base
+from backend.app.models import Base
 from sqlalchemy import String, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 

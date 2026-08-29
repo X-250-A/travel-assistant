@@ -1,7 +1,7 @@
 """
 Trip 实体（关联 User）
 """
-from backend.app.models.base import Base
+from backend.app.models import Base
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Integer, String, ForeignKey, JSON
 from typing import Optional

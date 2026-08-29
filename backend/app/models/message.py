@@ -4,7 +4,7 @@ Message 实体（关联 Trip，存放对话历史）
 
 from sqlalchemy import Integer, String, Text, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
-from backend.app.models.base import Base
+from backend.app.models import Base
 
 class Message(Base):
     __tablename__ = 'message'

@@ -43,10 +43,16 @@ _bcrypt.hashpw = _patched_hashpw
 
 # 测试数据库放在系统临时目录、每次会话新建：行为与项目内文件库一致（双引擎共享同一文件），
 # 但每次运行都是全新空库，且不需要删除文件——沙箱/CI 下文件删除可能被拦截，
-# 项目目录内残留库跨会话复用时数据不干净，会引发偶发失败（如 register 撞"用户名已存在"）
-_TEST_DB_DIR = tempfile.mkdtemp(prefix="trip_agent_test_")
+# 项目目录内残留库跨会话复用时数据不干净，会引发偶发失败（如 register 撞"用户名已存在"）。
+# 注意：不用 tempfile.mkdtemp() 建子目录——部分沙箱环境禁止在新建子目录里创建 sqlite 文件
+# （会报 "unable to open database file"），直接用可写的临时根目录 + 唯一文件名。
+import uuid as _uuid  # noqa: E402
+
+_TEST_DB_PATH = os.path.join(
+    tempfile.gettempdir(), f"trip_agent_test_{_uuid.uuid4().hex}.db"
+)
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-tests")
-os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_TEST_DB_DIR}/test.db"
+os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_TEST_DB_PATH.replace(os.sep, '/')}"
 os.environ["DEEPSEEK_API_KEY"] = "sk-test-dummy-key"
 os.environ["DEEPSEEK_BASE_URL"] = "https://test-deepseek.example.com/v1"
 os.environ["DEEPSEEK_MODEL"] = "deepseek-v4-flash"
@@ -58,15 +64,11 @@ os.environ["SILICONFLOW_API_KEY"] = "sk-test-dummy-key-change-me"
 os.environ["AMAP_API_KEY"] = "test-amap-key-for-tests"
 
 # ── 现在可安全导入项目模块 ──
-import backend.app.models.message  # noqa: E402, F401
-import backend.app.models.trip  # noqa: E402, F401
-
 # 显式导入所有模型，确保 Base.metadata 注册完整
-import backend.app.models.user  # noqa: E402, F401
-from backend.app.config import settings  # noqa: E402
-from backend.app.db.session import get_db  # noqa: E402
-from backend.app.main import app as fastapi_app  # noqa: E402
-from backend.app.models.base import Base  # noqa: E402
+from backend.app import app as fastapi_app  # noqa: E402
+from backend.app import settings  # noqa: E402
+from backend.app.db import get_db  # noqa: E402
+from backend.app.models import Base, Message, Trip, User  # noqa: E402, F401
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 数据库 fixtures
@@ -77,10 +79,13 @@ from backend.app.models.base import Base  # noqa: E402
 async def test_engine():
     """会话级：创建测试数据库引擎 + 建表（每次会话全新临时库，无需清理）"""
     from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
 
+    # NullPool：不池化连接，避免测试间连接泄漏导致 QueuePool 耗尽超时
     engine = create_async_engine(
         str(settings.DATABASE_URL),
         echo=False,
+        poolclass=NullPool,
     )
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

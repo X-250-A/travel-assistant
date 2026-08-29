@@ -10,8 +10,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from backend.app.tools import poi as poi_module
-from backend.app.tools.poi import format_pois, search_poi
+from backend.app.tools import format_pois, poi as poi_module, search_poi
 
 # ── 假数据 ────────────────────────────────────────────────────────────────
 

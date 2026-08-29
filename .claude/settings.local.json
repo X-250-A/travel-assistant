@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(uv run python -c ' *)",
-      "Bash(pip list *)"
+      "Bash(pip list *)",
+      "Bash(git tag *)"
     ]
   }
 }

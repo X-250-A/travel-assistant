@@ -1,7 +1,7 @@
 import re
 from dataclasses import dataclass
 from redis.asyncio import Redis
-from backend.app.config import settings
+from backend.app import settings
 
 
 

@@ -3,8 +3,7 @@ Trip CRUD 操作
 """
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from backend.app.models.trip import Trip
-from backend.app.models.message import Message
+from backend.app.models import Message, Trip
 from sqlalchemy import delete as sa_delete
 
 # 创建行程
@@ -37,6 +36,7 @@ async def list_user_trips(db: AsyncSession, user_id: int, page: int, page_size: 
     )
     result = await db.execute(query)
     return result.scalars().all()
+
 
 # 更新行程
 async def update_trip(

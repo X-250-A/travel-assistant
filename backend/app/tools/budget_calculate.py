@@ -1,4 +1,4 @@
-from backend.app.tools.base import Tool
+from backend.app.tools import Tool
 
 BUDGET_PARAMETERS = {
     "days" : {

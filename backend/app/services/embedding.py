@@ -1,7 +1,7 @@
 import httpx
 from openai import AsyncOpenAI
 
-from backend.app.config import settings
+from backend.app import settings
 
 
 class EmbeddingClient:

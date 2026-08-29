@@ -13,8 +13,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from backend.app.services import embedding as embedding_module
-from backend.app.services.embedding import EmbeddingClient
+from backend.app.services import EmbeddingClient, embedding as embedding_module
 
 # ── fixtures ────────────────────────────────────────────────────────────────
 

@@ -6,7 +6,7 @@
 import asyncio
 
 import pytest
-from backend.app.services.llm_client import LLMClient
+from backend.app.services import LLMClient
 
 pytestmark = pytest.mark.skip(
     reason="依赖外部 DeepSeek API，开发时用 python -m backend.tests.test_llm 手动运行"

@@ -6,9 +6,7 @@ ConversationManager: 会话状态机、历史消息管理
 from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.app.crud.trip import create_trip
-from backend.app.crud.message import save_message
-from backend.app.crud.message import get_all_trip_messages
+from backend.app.crud import create_trip, get_all_trip_messages, save_message
 from collections.abc import Callable
 
 

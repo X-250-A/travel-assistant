@@ -6,18 +6,17 @@ Chat 路由 — 核心对话端点
 """
 
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.db.session import get_db
-from backend.app.models.user import User
-from backend.app.routers.dependencies import get_current_user
-from backend.app.schemas.chat import ChatRequest
-from backend.app.crud.trip import find_trip_by_id
-from backend.app.agent.conversation import ConversationManager
-from backend.app.agent.planner import TripPlannerAgent
-from backend.app.db.redis import get_redis
+from backend.app.agent import ConversationManager, TripPlannerAgent
+from backend.app.crud import find_trip_by_id
+from backend.app.db import get_db, get_redis
+from backend.app.exceptions import ForbiddenError, NotFoundError
+from backend.app.models import User
+from backend.app.routers import get_current_user
+from backend.app.schemas import ChatRequest
 
 router = APIRouter(prefix="/api", tags=["chat"])
 
@@ -55,9 +54,9 @@ async def chat(
         # 情况 A：已有行程，查数据库确认存在 + 归属校验
         trip = await find_trip_by_id(db, request.trip_id)
         if trip is None:
-            raise HTTPException(status_code=404, detail="行程不存在")
+            raise NotFoundError(detail="行程不存在")
         if trip.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="无权限访问该行程")
+            raise ForbiddenError(detail="无权限访问该行程")
         trip_id = trip.id  # 用数据库查出来的值，不信任前端
     else:
         # 情况 B：新行程，先用 0 占位

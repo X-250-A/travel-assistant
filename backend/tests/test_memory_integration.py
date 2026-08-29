@@ -14,8 +14,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from backend.app.agent.conversation import ConversationManager, ConversationState
-from backend.app.agent.planner import TripPlannerAgent
+from backend.app.agent import ConversationManager, ConversationState, TripPlannerAgent
 
 # ─── 辅助：mock Agent / ConversationManager / Redis ─────────────────────────
 

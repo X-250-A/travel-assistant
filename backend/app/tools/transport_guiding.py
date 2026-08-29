@@ -1,7 +1,7 @@
 import httpx
 from math import radians, sin, cos, sqrt, asin
-from backend.app.config import settings
-from backend.app.tools.base import Tool
+from backend.app import settings
+from backend.app.tools import Tool
 
 # 热门旅游城市经纬度（高德坐标系 GCJ-02）
 CITY_COORDS = {

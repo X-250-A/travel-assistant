@@ -7,17 +7,21 @@ TripPlannerAgent: 行程规划 Agent 核心
 from redis.asyncio import Redis
 
 
-from backend.app.services.prompt_builder import PromptBuilder
-from backend.app.agent.conversation import ConversationManager
-from backend.app.services.llm_client import LLMClient
-from backend.app.crud.trip import find_trip_by_id, update_trip
-from backend.app.tools import get_tool_schema, execute_tool
 import json
 import re
-from backend.app.config import settings
-from backend.app.memory.preferences import load_preferences, extract_preferences, save_preferences
-from backend.app.memory.vector_memory import recall_vector_memory, save_vector_memory
-from backend.app.services.embedding import EmbeddingClient
+
+from backend.app import settings
+from backend.app.agent import ConversationManager
+from backend.app.crud import find_trip_by_id, update_trip
+from backend.app.memory import (
+    extract_preferences,
+    load_preferences,
+    recall_vector_memory,
+    save_preferences,
+    save_vector_memory,
+)
+from backend.app.services import EmbeddingClient, LLMClient, PromptBuilder
+from backend.app.tools import execute_tool, get_tool_schema
 
 MAX_TOOL_ROUND = 10
 

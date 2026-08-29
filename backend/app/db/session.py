@@ -1,5 +1,5 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from backend.app.config import settings
+from backend.app import settings
 
 # 创建异步引擎
 

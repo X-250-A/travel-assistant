@@ -1,7 +1,7 @@
 import httpx, random
-from backend.app.tools.base import Tool
-from backend.app.config import settings
-from backend.app.db.redis import get_redis
+from backend.app import settings
+from backend.app.db import get_redis
+from backend.app.tools import Tool
 
 POI_PARAMETERS = {
     "city": {"type": "string", "description": "城市名称，如成都、杭州"},

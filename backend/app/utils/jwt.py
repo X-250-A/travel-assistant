@@ -4,7 +4,7 @@ JWT Token 工具
 封装 python-jose 的 Token 创建和验证逻辑。
 """
 from datetime import datetime, timedelta, timezone
-from backend.app.config import settings
+from backend.app import settings
 from jose import jwt, JWTError
 import uuid
 

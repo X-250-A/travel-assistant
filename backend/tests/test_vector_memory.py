@@ -10,7 +10,7 @@ import json
 from unittest.mock import AsyncMock
 
 import pytest
-from backend.app.memory.vector_memory import (
+from backend.app.memory import (
     cosine_similarity,
     recall_vector_memory,
     save_vector_memory,

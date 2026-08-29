@@ -3,10 +3,11 @@ JWT 验证中间件，提取 current_user 注入请求上下文
 """
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from backend.app.utils.jwt import decode_token
 from starlette import status
-from backend.app.config import settings
-from backend.app.db.redis import get_redis
+
+from backend.app import settings
+from backend.app.db import get_redis
+from backend.app.utils import decode_token
 
 
 PUBLIC_PATHS = frozenset({

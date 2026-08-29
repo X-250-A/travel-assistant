@@ -2,7 +2,7 @@
 Message CRUD 操作
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from backend.app.models.message import Message
+from backend.app.models import Message
 from sqlalchemy import select
 
 

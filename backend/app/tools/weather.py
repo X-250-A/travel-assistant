@@ -1,9 +1,9 @@
 import random
 import datetime
 import httpx
-from backend.app.db.redis import get_redis
-from backend.app.config import settings
-from backend.app.tools.base import Tool
+from backend.app import settings
+from backend.app.db import get_redis
+from backend.app.tools import Tool
 
 
 WEATHER_PARAMETERS = {

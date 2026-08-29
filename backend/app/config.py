@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     # POI 工具
     POI_CACHE_TTL: int = 86400
 
+    # LOGGING调试体系
+    LOG_LEVEL: str = "INFO"
+
     model_config = {
         "env_file": str(Path(__file__).parent.parent.parent / ".env"),
         "env_file_encoding": "utf-8"
