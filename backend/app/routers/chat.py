@@ -6,6 +6,7 @@ Chat 路由 — 核心对话端点
 """
 
 import json
+
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,7 @@ from backend.app.crud import find_trip_by_id
 from backend.app.db import get_db, get_redis
 from backend.app.exceptions import ForbiddenError, NotFoundError
 from backend.app.models import User
-from backend.app.routers import get_current_user
+from backend.app.routers.dependencies import get_current_user
 from backend.app.schemas import ChatRequest
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -25,7 +26,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 async def chat(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """
     核心对话端点，完整流程：
@@ -74,7 +75,6 @@ async def chat(
         user_id=current_user.id,
     )
 
-
     # 如果前面 trip_id 是 0（新行程），现在才真正创建数据库记录
     if request.trip_id is None:
         # create_conversation 内部调用 crud.create_trip() 写入 trip 表
@@ -103,9 +103,9 @@ async def chat(
         r = await get_redis(0)
         try:
             async for event in agent.handle_message(
-                request.message,        # 用户输入的文本
-                conversation_manager,   # 会话管理器（Agent 内部会调用 add_message / get_context）
-                r
+                request.message,  # 用户输入的文本
+                conversation_manager,  # 会话管理器（Agent 内部会调用 add_message / get_context）
+                r,
             ):
                 # SSE 协议格式：每行 "data: <json>\n\n" 表示一个事件
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
@@ -120,8 +120,8 @@ async def chat(
         event_generator(),
         media_type="text/event-stream",
         headers={
-            "Cache-Control": "no-cache",          # 禁止浏览器/CDN 缓存 SSE 流
-            "Connection": "keep-alive",           # 保持长连接
-            "X-Accel-Buffering": "no",            # 禁用 Nginx 代理缓冲（如果有的话）
+            "Cache-Control": "no-cache",  # 禁止浏览器/CDN 缓存 SSE 流
+            "Connection": "keep-alive",  # 保持长连接
+            "X-Accel-Buffering": "no",  # 禁用 Nginx 代理缓冲（如果有的话）
         },
     )
