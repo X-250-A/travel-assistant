@@ -1,25 +1,19 @@
-import random
 import datetime
+import random
+
 import httpx
+
 from backend.app import settings
 from backend.app.db import get_redis
 from backend.app.tools import Tool
 
-
 WEATHER_PARAMETERS = {
-    "city": {
-        "type": "string",
-        "description": "城市名称，如北京，上海等"
-    },
-    "date": {
-        "type": "string",
-        "description": "日期，格式为 YYYY-MM-DD，不传则查当天"
-    }
+    "city": {"type": "string", "description": "城市名称，如北京，上海等"},
+    "date": {"type": "string", "description": "日期，格式为 YYYY-MM-DD，不传则查当天"},
 }
 
 
-
-async def get_weather(city : str, date : str = None):
+async def get_weather(city: str, date: str = None):
     api_key = settings.WEATHER_API_KEY
 
     # key归一化，预防同一数据不同写法导致key不同，降低缓存命中率
@@ -33,18 +27,13 @@ async def get_weather(city : str, date : str = None):
     if cached:
         return cached
 
-    params = {
-        "key" : api_key,
-        "q" : city,
-        "days" : date and 3 or 1,
-        "lang" : "zh"
-    }
+    params = {"key": api_key, "q": city, "days": date and 3 or 1, "lang": "zh"}
 
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             "https://api.weatherapi.com/v1/forecast.json",
-            params = params,
-            timeout = 10,
+            params=params,
+            timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
@@ -55,17 +44,17 @@ async def get_weather(city : str, date : str = None):
     result += f"  温度：{c['temp_c']}°C（体感 {c['feelslike_c']}°C）\n"
     result += f"  湿度：{c['humidity']}%　风速：{c['wind_kph']}km/h"
 
-
     r = await get_redis(0)
     await r.setex(cache_key, settings.WEATHER_CACHE_TTL + random.randint(-300, 300), result)
     await r.aclose()
 
     return result
 
+
 weather_tool = Tool(
-    name = "get_weather",
+    name="get_weather",
     description="查询目的地指定日期的天气预报，用于在行程规划中给出天气提醒和出行建议",
     parameters=WEATHER_PARAMETERS,
     required=["city"],
-    handler=get_weather
+    handler=get_weather,
 )

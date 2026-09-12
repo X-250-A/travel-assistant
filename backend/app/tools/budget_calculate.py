@@ -1,32 +1,19 @@
 from backend.app.tools import Tool
 
 BUDGET_PARAMETERS = {
-    "days" : {
-        "type" : "integer",
-        "description" : "旅游天数"
-    },
-    "people" : {
-        "type" : "integer",
-        "description" : "旅游人数"
-    },
-    "level" : {
-        "type" : "string",
-        "description" : "预算档次：经济/舒适/豪华"
-    }
+    "days": {"type": "integer", "description": "旅游天数"},
+    "people": {"type": "integer", "description": "旅游人数"},
+    "level": {"type": "string", "description": "预算档次：经济/舒适/豪华"},
 }
 
-async def budget_calculate(days, people, level : str = "经济"):
 
-    per_day = {
-        "经济" : 300,
-        "舒适" : 600,
-        "豪华" : 1200
-    }
+async def budget_calculate(days, people, level: str = "经济"):
+
+    per_day = {"经济": 300, "舒适": 600, "豪华": 1200}
     daily = per_day.get(level, 600)
     total = daily * people * days
 
     hotel = {"经济": 150, "舒适": 300, "豪华": 800}[level] * days
-
 
     transport = 50 * days * people
     food = {"经济": 80, "舒适": 150, "豪华": 400}[level] * days * people
@@ -44,9 +31,9 @@ async def budget_calculate(days, people, level : str = "经济"):
 
 
 budget_calculate_tool = Tool(
-    name = "budget_calculate",
+    name="budget_calculate",
     description="根据旅行天数、人数和消费档次估算旅行预算总额及各分项费用",
     parameters=BUDGET_PARAMETERS,
     required=["days", "people"],
-    handler=budget_calculate
+    handler=budget_calculate,
 )

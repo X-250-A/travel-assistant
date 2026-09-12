@@ -1,6 +1,6 @@
-from typing import Any
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from collections.abc import Callable, Awaitable
+from typing import Any
 
 
 @dataclass
@@ -21,7 +21,7 @@ class Tool:
                 "parameters": {
                     "type": "object",
                     "properties": self.parameters,
-                    "required": self.required
-                }
-            }
+                    "required": self.required,
+                },
+            },
         }

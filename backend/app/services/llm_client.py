@@ -4,13 +4,15 @@ LLMClient: DeepSeek API 封装（重试、超时、流式）
 
 import httpx
 import tiktoken
+from openai import AsyncOpenAI
+
 from backend.app import settings
 from backend.app.services import mock_llm
-from openai import AsyncOpenAI
 
 
 class LLMClient:
     """DeepSeek SDK 封装"""
+
     def __init__(self):
         # E2E mock 模式：不建真实连接，client 换成内存假实现（意图分类/Critic 直接调 client.chat）
         if settings.LLM_PROVIDER == "mock":
@@ -26,7 +28,7 @@ class LLMClient:
                 connect=settings.LLM_CONNECT_TIMEOUT,
                 read=settings.LLM_READ_TIMEOUT,
                 write=10.0,
-                pool=5.0
+                pool=5.0,
             ),
         )
         self.client = AsyncOpenAI(
@@ -37,7 +39,7 @@ class LLMClient:
         self.model = settings.DEEPSEEK_MODEL
         self._encoding = tiktoken.get_encoding("cl100k_base")
 
-    async def chat(self, messages: list[dict], tools : list[dict]):
+    async def chat(self, messages: list[dict], tools: list[dict]):
         """非流式调用，返回完整响应文本"""
         if settings.LLM_PROVIDER == "mock":
             return mock_llm.mock_chat(messages, tools)
@@ -49,7 +51,6 @@ class LLMClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
-
 
         responses = await self.client.chat.completions.create(**kwargs)
 
@@ -64,16 +65,14 @@ class LLMClient:
         stream = await self.client.chat.completions.create(
             model=self.model,  # type: ignore
             messages=messages,  # type: ignore
-            stream=True, # type: ignore
-            timeout=settings.LLM_REQUEST_TIMEOUT
+            stream=True,  # type: ignore
+            timeout=settings.LLM_REQUEST_TIMEOUT,
         )
         async for chunk in stream:  # type: ignore
             delta = chunk.choices[0].delta
             if delta and delta.content:
                 yield delta.content
 
-
     def count_tokens(self, text: str) -> int:
         """估算 Token 数"""
         return len(self._encoding.encode(text))
-

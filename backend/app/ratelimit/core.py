@@ -1,5 +1,6 @@
-from redis.asyncio import Redis
 import time
+
+from redis.asyncio import Redis
 
 
 async def check_rate_limit(r: Redis, key: str, limit: int, window: int) -> bool:
@@ -48,4 +49,3 @@ async def check_rate_limit(r: Redis, key: str, limit: int, window: int) -> bool:
     # 判断是否超限。注意这是"加完本次请求后"再比较：
     # 前 limit 次时 count <= limit 放行，第 limit+1 次时 count == limit+1 > limit 被拒。
     return count <= limit
-

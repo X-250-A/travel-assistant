@@ -85,9 +85,7 @@ TRIP_MARKDOWN = (
     "好的，已为您规划好成都 3 日游方案！\n\n"
     "## 第一天：市区经典\n\n"
     "- 武侯祠 → 锦里 → 宽窄巷子\n\n"
-    "```json\n"
-    + json.dumps(_PLAN_JSON, ensure_ascii=False, indent=2)
-    + "\n```"
+    "```json\n" + json.dumps(_PLAN_JSON, ensure_ascii=False, indent=2) + "\n```"
 )
 
 

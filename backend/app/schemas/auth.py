@@ -1,6 +1,7 @@
 """
 RegisterRequest, LoginRequest, TokenResponse
 """
+
 from pydantic import BaseModel
 
 
@@ -26,9 +27,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
 
-    model_config = {
-        "from_attributes": True
-    }
+    model_config = {"from_attributes": True}
 
 
 # 登录响应模型

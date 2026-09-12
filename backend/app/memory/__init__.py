@@ -1,4 +1,5 @@
 """memory 注册中心 — 统一导出偏好记忆与向量记忆"""
+
 from backend.app.memory.preferences import (
     Preferences,
     extract_preferences,

@@ -4,11 +4,11 @@ TripPlannerAgent: 行程规划 Agent 核心
 封装行程规划 Agent 的核心决策逻辑——理解用户意图、构建 Prompt、调用 LLM、解析行程结果、处理用户反馈。
 """
 
-from redis.asyncio import Redis
-
-
+import contextlib
 import json
 import re
+
+from redis.asyncio import Redis
 
 from backend.app import settings
 from backend.app.agent import ConversationManager
@@ -46,7 +46,7 @@ class TripPlannerAgent:
                 conversation.user_id,
                 query_vector,
                 settings.MEMORY_TOPK,
-                settings.MEMORY_SIM_THRESHOLD
+                settings.MEMORY_SIM_THRESHOLD,
             )
             conversation.memories = memories or []
 
@@ -77,7 +77,10 @@ class TripPlannerAgent:
                 yield chunk
             return
         else:
-            yield {"type": "token", "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"}
+            yield {
+                "type": "token",
+                "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？",
+            }
             yield {"type": "done", "data": {}}
             return
 
@@ -95,14 +98,15 @@ class TripPlannerAgent:
         # 4. 从回复中分离自然语言文本与结构化 JSON
         display_text, plan_data = self._extract_plan_json(full_text)
 
-
         # 4.5 Critic 质量审查（v0.8.0）—— 判定树
         # 审查条件（两个都要满足）：
         #   1. settings.CRITIC_ENABLED —— 总开关开启（测试环境用 env 关掉，避免真打 DeepSeek）
         #   2. plan_data is not None   —— 有方案才审（没解析出合法 JSON 则无可审对象）
         if plan_data is not None and settings.CRITIC_ENABLED:
             yield {"type": "thinking", "content": "正在对行程方案做质量审查…"}
-            critic_result = await self._ask_critic(user_input=user_input, conversation=conversation, plan_data_json=plan_data)
+            critic_result = await self._ask_critic(
+                user_input=user_input, conversation=conversation, plan_data_json=plan_data
+            )
 
             # 进入重生成的条件（缺一不可）：
             #   1. critic_result 非空 —— 审查成功（失败降级返回 None，直接用原方案，不阻断主流程）
@@ -123,7 +127,6 @@ class TripPlannerAgent:
                     if new_plan is not None:
                         display_text, plan_data = new_display, new_plan
                         break
-
 
         # 5. 保存解析出的行程数据
         if plan_data is not None:
@@ -157,16 +160,11 @@ class TripPlannerAgent:
             display_text = parts[0].strip()
             json_part = parts[1]
             end = json_part.rfind("```")
-            if end != -1:
-                json_str = json_part[:end].strip()
-            else:
-                json_str = json_part.strip()
+            json_str = json_part[:end].strip() if end != -1 else json_part.strip()
 
             if json_str:
-                try:
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
                     plan_data = json.loads(json_str)
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
             if plan_data is not None:
                 return display_text, plan_data
@@ -185,17 +183,17 @@ class TripPlannerAgent:
                 plan_data = json.loads(candidate)
                 display_text = full_text.split("```")[0].strip()
                 return display_text, plan_data
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
 
         # 回退 2：兼容没有 ```json 标记的纯 JSON 输出
-        match = re.search(r'\{.*}', full_text, re.DOTALL)
+        match = re.search(r"\{.*}", full_text, re.DOTALL)
         if match:
             try:
                 plan_data = json.loads(match.group())
                 display_text = full_text.replace(match.group(), "").strip()
                 return display_text, plan_data
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 pass
 
         print(f"[WARN] 未在回复中找到有效 JSON，原始输出前200字: {full_text[:200]}")
@@ -217,7 +215,7 @@ class TripPlannerAgent:
             # ② embed 全部 facts（一次批量）
             vecs = await self.embedding_client.embed(facts)
             # ③ zip 配对，逐条存
-            for fact, vec in zip(facts, vecs):
+            for fact, vec in zip(facts, vecs, strict=False):
                 await save_vector_memory(r, conversation.user_id, fact, vec)
         except Exception as e:
             print(f"[WARN] 向量记忆保存失败，跳过：{e}")
@@ -227,10 +225,7 @@ class TripPlannerAgent:
         intent_classifier_prompt = self.prompt_builder.build_intent_classifier_prompt()
 
         # 构建 messages
-        message = [{
-            "role": "system",
-            "content": intent_classifier_prompt
-        }]
+        message = [{"role": "system", "content": intent_classifier_prompt}]
 
         # 检查对话历史
         context_hint = ""
@@ -243,14 +238,8 @@ class TripPlannerAgent:
 
         # 将上下文历史加入 messages
         if context_hint != "":
-            message.append({
-                "role": "system",
-                "content": context_hint
-            })
-        message.append({
-            "role": "user",
-            "content": user_input
-        })
+            message.append({"role": "system", "content": context_hint})
+        message.append({"role": "user", "content": user_input})
 
         try:
             resp = await self.llm_client.client.chat.completions.create(
@@ -259,7 +248,7 @@ class TripPlannerAgent:
                 stream=False,
                 timeout=settings.LLM_REQUEST_TIMEOUT,
                 temperature=0,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
             result = json.loads(resp.choices[0].message.content)
             intent = result.get("intent", "unclear")
@@ -292,22 +281,23 @@ class TripPlannerAgent:
 
         return "unclear"
 
-    async def _ask_critic(self, plan_data_json : dict, user_input: str, conversation):
+    async def _ask_critic(self, plan_data_json: dict, user_input: str, conversation):
         """构造 Prompt 调用 LLM 开始审查 Json"""
         extra_system = self.prompt_builder.build_critic_prompt()
 
         """ 拼接 message """
-        messages = [
-            {"role": "system", "content": extra_system}
-        ]
+        messages = [{"role": "system", "content": extra_system}]
 
         messages.append(
-            {"role": "user", "content": (
-                f"用户需求：{user_input}\n"
-                f"{self.prompt_builder.render_preferences(conversation.pref)}\n"
-                f"请审查以下行程 JSON：\n"
-                f"{json.dumps(plan_data_json, ensure_ascii=False, indent=2)}"
-            )}
+            {
+                "role": "user",
+                "content": (
+                    f"用户需求：{user_input}\n"
+                    f"{self.prompt_builder.render_preferences(conversation.pref)}\n"
+                    f"请审查以下行程 JSON：\n"
+                    f"{json.dumps(plan_data_json, ensure_ascii=False, indent=2)}"
+                ),
+            }
         )
 
         """非流式调用LLM + 解析审查结果"""
@@ -319,7 +309,7 @@ class TripPlannerAgent:
                 timeout=settings.LLM_REQUEST_TIMEOUT,
                 temperature=0,
                 messages=messages,
-                response_format={"type": "json_object"}
+                response_format={"type": "json_object"},
             )
             result = json.loads(response.choices[0].message.content)
             passed = result.get("passed")
@@ -336,19 +326,19 @@ class TripPlannerAgent:
             print(f"[WARN] 审查结果解析失败: {e}")
             return None
 
-        return{"passed": passed, "scores": scores, "issues": issues}
-
-
-
-
-
+        return {"passed": passed, "scores": scores, "issues": issues}
 
     async def _generate_plan(self, conversation, tool_defs=None):
         """构造 Prompt 调用 LLM 生成行程"""
-        context = await conversation.get_context(max_tokens=30000, token_counter=self.llm_client.count_tokens)
+        context = await conversation.get_context(
+            max_tokens=30000, token_counter=self.llm_client.count_tokens
+        )
 
         if not context:
-            yield {"type": "token", "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"}
+            yield {
+                "type": "token",
+                "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？",
+            }
             return
 
         # context 按时间升序排列，最后一条是当前用户消息
@@ -366,7 +356,7 @@ class TripPlannerAgent:
         if tool_defs is None:
             tool_defs = get_tool_schema()
 
-        thoughts : list[str] = []
+        thoughts: list[str] = []
 
         # 非流式调用LLM
         message = await self.llm_client.chat(messages, tool_defs)
@@ -379,13 +369,13 @@ class TripPlannerAgent:
         while tool_round < MAX_TOOL_ROUND:
             tool_round += 1
 
-            messages.append({
-                "role": "assistant",
-                "content": message.content,  # 可能为 None
-                "tool_calls": message.tool_calls  # tool_calls 列表
-            })
-
-
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": message.content,  # 可能为 None
+                    "tool_calls": message.tool_calls,  # tool_calls 列表
+                }
+            )
 
             tool_names = ", ".join(tool_call.function.name for tool_call in message.tool_calls)
 
@@ -400,26 +390,30 @@ class TripPlannerAgent:
 
                 observations.append(f"{fn_name}({fn_args}) → {result}")
 
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": result,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": result,
+                    }
+                )
 
             # 在 observations 循环结束、调用下一轮 LLM 之前
             summary = "; ".join(obs[:120] for obs in observations)
             thoughts.append(f"第{tool_round}轮：调用了 {tool_names}，结果：{summary[:150]}")
 
-            messages.append({
-                "role": "assistant",
-                "content": (
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": (
                         "[内部推理] 我目前已掌握的信息：\n"
                         + "\n".join(f"- {t}" for t in thoughts[-3:])
                         + "\n\n请基于以上信息评估：是否已满足用户需求？"
-                          "若已满足，直接组织最终行程回答，不要调用工具；"
-                          "若关键信息仍有缺失，再调用工具补充。"
-                ),
-            })
+                        "若已满足，直接组织最终行程回答，不要调用工具；"
+                        "若关键信息仍有缺失，再调用工具补充。"
+                    ),
+                }
+            )
 
             message = await self.llm_client.chat(messages, tool_defs)
 
@@ -483,18 +477,13 @@ class TripPlannerAgent:
             full_text += chunk
         return full_text
 
-
-
-
-
-
     async def _apply_feedback(self, feedback: str, current_plan: dict, conversation):
         """根据用户反馈调整现有行程"""
         modify_prompt = f"""以下是当前行程的完整 JSON：
         {json.dumps(current_plan, ensure_ascii=False, indent=2)}
-        
+
         用户要求：{feedback}
-        
+
         请在现有行程基础上做局部调整。只修改用户提到的部分，其余保持不变。
         先用自然语言说明你做了哪些调整，然后在回复末尾用 ```json 代码块返回修改后的完整行程 JSON。"""
         # 保留原始 system prompt 的角色定义，再追加修改指令
@@ -510,10 +499,15 @@ class TripPlannerAgent:
             yield {"type": "token", "content": chunk}
 
     async def gossip(self, conversation):
-        context = await conversation.get_context(max_tokens=30000, token_counter=self.llm_client.count_tokens)
+        context = await conversation.get_context(
+            max_tokens=30000, token_counter=self.llm_client.count_tokens
+        )
 
         if not context:
-            yield {"type": "token", "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？"}
+            yield {
+                "type": "token",
+                "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？",
+            }
             return
 
         # context 按时间升序排列，最后一条是当前用户消息
@@ -525,7 +519,7 @@ class TripPlannerAgent:
             history=history,
             user_input=user_input,
             pref=conversation.pref,
-            memories=conversation.memories
+            memories=conversation.memories,
         )
 
         full_text = ""

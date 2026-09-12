@@ -3,11 +3,13 @@ ConversationManager: 会话状态机、历史消息管理
 
 管理一次行程规划对话的完整生命周期——创建会话、追踪状态、维护消息历史、控制上下文窗口大小。
 """
+
+from collections.abc import Callable
 from enum import StrEnum
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from backend.app.crud import create_trip, get_all_trip_messages, save_message
-from collections.abc import Callable
 
 
 class ConversationState(StrEnum):
@@ -17,23 +19,19 @@ class ConversationState(StrEnum):
     DONE = "done"
 
 
-
-
-
 class ConversationManager:
     """会话状态机、上下文管理"""
-    def __init__(self, db : AsyncSession, trip_id : int, user_id : int):
+
+    def __init__(self, db: AsyncSession, trip_id: int, user_id: int):
         self.db = db
         self.trip_id = trip_id
         self.user_id = user_id
         self.state: ConversationState = ConversationState.IDLE
-        self.history_cache : list[dict] = [] # 历史对话的缓存
-        self.pref : dict[str, str] | None = None
+        self.history_cache: list[dict] = []  # 历史对话的缓存
+        self.pref: dict[str, str] | None = None
         self.memories: list[str] = []
 
-
-
-    async def create_conversation(self, title : str):
+    async def create_conversation(self, title: str):
         """创建新会话，关联到某个 Trip"""
         # status 必须用 Trip 的合法值 "draft"，不能用会话状态 self.state（idle/planning/...）
         # 二者是不同的枚举体系：Trip.status ∈ {draft, confirmed}，ConversationState ∈ {idle, planning, ...}
@@ -47,12 +45,11 @@ class ConversationManager:
         self.history_cache.append({"role": role, "content": content})
         return message
 
-    async def get_context(self, max_tokens: int, token_counter : Callable[[str], int]):
+    async def get_context(self, max_tokens: int, token_counter: Callable[[str], int]):
         """返回拼接后的上下文字符串，自动裁剪到 max_tokens 以内"""
         db_messages = await get_all_trip_messages(self.db, self.trip_id)
         all_history = [
-            {"role": db_message.role, "content": db_message.content}
-            for db_message in db_messages
+            {"role": db_message.role, "content": db_message.content} for db_message in db_messages
         ]
         result = []
         current_token = 0
@@ -64,7 +61,6 @@ class ConversationManager:
             current_token += message_tokens
         self.history_cache = result
         return result
-
 
     def get_state(self) -> str:
         """返回当前会话状态（idle / planning / confirming / done）"""
