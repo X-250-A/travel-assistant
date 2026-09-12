@@ -4,6 +4,7 @@ import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from backend.app.agent import ConversationManager, ConversationState, TripPlannerAgent
 
 # ─── 测试用的假行程 JSON ──────────────────────────────────────────────────

@@ -48,9 +48,7 @@ _bcrypt.hashpw = _patched_hashpw
 # （会报 "unable to open database file"），直接用可写的临时根目录 + 唯一文件名。
 import uuid as _uuid  # noqa: E402
 
-_TEST_DB_PATH = os.path.join(
-    tempfile.gettempdir(), f"trip_agent_test_{_uuid.uuid4().hex}.db"
-)
+_TEST_DB_PATH = os.path.join(tempfile.gettempdir(), f"trip_agent_test_{_uuid.uuid4().hex}.db")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-tests")
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{_TEST_DB_PATH.replace(os.sep, '/')}"
 os.environ["DEEPSEEK_API_KEY"] = "sk-test-dummy-key"

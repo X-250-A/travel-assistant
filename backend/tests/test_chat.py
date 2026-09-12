@@ -9,25 +9,36 @@ from httpx import AsyncClient
 # 辅助工具
 # ═══════════════════════════════════════════════════════════════════════════
 
-FAKE_PLAN_JSON = json.dumps({
-    "destination": "成都",
-    "duration": 3,
-    "budget": 3000,
-    "style": ["美食"],
-    "overview": "三日成都之旅",
-    "days": [{
-        "day": 1, "date": None, "theme": "市区初探",
-        "attractions": [{
-            "name": "宽窄巷子", "type": "景点",
-            "duration_minutes": 120, "cost_yuan": 0,
-            "tips": "上午去人少", "transport_from_previous": "无",
-        }],
-        "meals": [],
-    }],
-    "overall_tips": "带伞",
-})
+FAKE_PLAN_JSON = json.dumps(
+    {
+        "destination": "成都",
+        "duration": 3,
+        "budget": 3000,
+        "style": ["美食"],
+        "overview": "三日成都之旅",
+        "days": [
+            {
+                "day": 1,
+                "date": None,
+                "theme": "市区初探",
+                "attractions": [
+                    {
+                        "name": "宽窄巷子",
+                        "type": "景点",
+                        "duration_minutes": 120,
+                        "cost_yuan": 0,
+                        "tips": "上午去人少",
+                        "transport_from_previous": "无",
+                    }
+                ],
+                "meals": [],
+            }
+        ],
+        "overall_tips": "带伞",
+    }
+)
 
-DEFAULT_CHUNKS = ['{"destination": "成都"', '}\n']
+DEFAULT_CHUNKS = ['{"destination": "成都"', "}\n"]
 
 
 async def _collect_sse_events(response) -> tuple[list[dict], str]:
@@ -36,7 +47,7 @@ async def _collect_sse_events(response) -> tuple[list[dict], str]:
     full_text_parts = []
     async for line in response.aiter_lines():
         if line.startswith("data: "):
-            data = json.loads(line[len("data: "):])
+            data = json.loads(line[len("data: ") :])
             events.append(data)
             if data["type"] == "token":
                 full_text_parts.append(data["content"])
@@ -94,6 +105,7 @@ def _make_llm_mock(intent: str = "new_trip", chunks: list[str] | None = None):
 # ═══════════════════════════════════════════════════════════════════════════
 # 测试
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 class TestChatEndpoint:
     """POST /api/chat — 需要 auth_headers"""

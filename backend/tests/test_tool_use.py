@@ -1,12 +1,14 @@
 """
 测试 Tool Use：验证 LLM 识别工具意图 → 执行工具 → 回传结果的完整循环
 """
+
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from backend.app.services import llm_client as llm_client_module
-from backend.app.tools import weather as weather_module, weather_tool
+from backend.app.tools import weather as weather_module
+from backend.app.tools import weather_tool
 
 
 async def test_tool_call():
@@ -37,7 +39,7 @@ async def test_tool_call():
         client = llm_client_module.LLMClient()
         messages = [
             {"role": "system", "content": "你是一个旅游助手，可以通过查天气来回答用户问题。"},
-            {"role": "user", "content": "北京今天天气怎么样？适合出去玩吗？"}
+            {"role": "user", "content": "北京今天天气怎么样？适合出去玩吗？"},
         ]
 
         # 1. 首次调用：LLM 识别出查天气意图，返回工具调用
@@ -51,16 +53,20 @@ async def test_tool_call():
         assert "北京" in result
 
         # 3. 回传工具结果
-        messages.append({
-            "role": "assistant",
-            "content": message.content,
-            "tool_calls": message.tool_calls,
-        })
-        messages.append({
-            "role": "tool",
-            "tool_call_id": message.tool_calls[0].id,
-            "content": result,
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "content": message.content,
+                "tool_calls": message.tool_calls,
+            }
+        )
+        messages.append(
+            {
+                "role": "tool",
+                "tool_call_id": message.tool_calls[0].id,
+                "content": result,
+            }
+        )
 
         # 4. 带着结果再次调用：LLM 生成最终回复
         message2 = await client.chat(messages, [weather_tool.openai_schema()])
