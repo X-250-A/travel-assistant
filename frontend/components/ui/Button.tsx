@@ -10,21 +10,21 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 
 const variantClasses: Record<string, string> = {
     primary:
-        "bg-gradient-to-r from-orange-500 to-rose-500 text-white shadow-lg shadow-orange-200 hover:shadow-orange-300 hover:from-orange-600 hover:to-rose-600 active:scale-[0.97]",
+        "bg-gate text-[#FFFDF7] shadow-[0_10px_22px_-12px_rgba(229,106,31,0.7)] hover:bg-gate-dark active:scale-[0.97]",
     secondary:
-        "bg-white text-stone-700 border border-stone-200 hover:border-orange-300 hover:text-orange-600 hover:bg-orange-50 shadow-sm",
+        "bg-ticket-face text-ink border border-char/35 shadow-sm hover:border-gate hover:text-gate",
     danger:
-        "bg-gradient-to-r from-red-500 to-red-600 text-white shadow-lg shadow-red-200 hover:shadow-red-300 hover:from-red-600 hover:to-red-700 active:scale-[0.97]",
+        "bg-stamp-red text-[#FFFDF7] shadow-[0_10px_22px_-12px_rgba(200,68,42,0.6)] hover:bg-[#B03A22] active:scale-[0.97]",
     ghost:
-        "text-stone-500 hover:text-orange-600 hover:bg-orange-50",
+        "text-mist hover:text-ink hover:bg-ink/[0.06]",
     accent:
-        "bg-gradient-to-r from-sky-500 to-cyan-500 text-white shadow-lg shadow-sky-200 hover:shadow-sky-300 hover:from-sky-600 hover:to-cyan-600 active:scale-[0.97]",
+        "bg-ink text-ticket-face shadow-[0_10px_22px_-14px_rgba(22,50,79,0.8)] hover:bg-[#0F2438] active:scale-[0.97]",
 };
 
 const sizeClasses: Record<string, string> = {
-    sm: "px-3.5 py-1.5 text-sm rounded-lg",
-    md: "px-5 py-2.5 text-sm font-medium rounded-xl",
-    lg: "px-8 py-3.5 text-base font-semibold rounded-xl",
+    sm: "px-3.5 py-1.5 text-sm rounded-md",
+    md: "px-5 py-2.5 text-sm font-medium rounded-lg",
+    lg: "px-8 py-3.5 text-base font-semibold rounded-lg",
 };
 
 export default function Button({
@@ -42,7 +42,7 @@ export default function Button({
         <button
             disabled={isDisabled}
             className={`inline-flex items-center justify-center gap-2 transition-all duration-200
-            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400 focus-visible:ring-offset-2
+            focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gate focus-visible:ring-offset-2 focus-visible:ring-offset-paper
             ${isDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}
             ${variantClasses[variant]}
             ${sizeClasses[size]}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { listTrip } from "@/lib/api";
 import TripCard from "@/components/trip/TripCard";
+import TicketNav from "@/components/ui/TicketNav";
 import Card from "@/components/ui/Card";
 import Loading from "@/components/ui/Loading";
 import Button from "@/components/ui/Button";
@@ -26,16 +27,17 @@ export default function TripsPage() {
     if (loading) {
         return (
             <div className="min-h-screen flex items-center justify-center">
-                <Loading size="lg" text="加载行程中..." />
+                <Loading size="lg" text="正在取票..." />
             </div>
         );
     }
 
     if (error) {
         return (
-            <div className="min-h-screen flex flex-col items-center justify-center gap-4">
-                <p className="text-red-500 text-sm">{error}</p>
-                <Button variant="secondary" onClick={() => window.location.reload()}>
+            <div className="min-h-screen flex flex-col items-center justify-center gap-3 px-4 text-center">
+                <p className="font-mono text-[11px] tracking-[0.25em] text-stamp-red">ERROR · 取票失败</p>
+                <p className="text-sm text-mist">{error}</p>
+                <Button variant="secondary" size="sm" onClick={() => window.location.reload()}>
                     重试
                 </Button>
             </div>
@@ -44,40 +46,44 @@ export default function TripsPage() {
 
     return (
         <div className="min-h-screen">
-            {/* 顶栏 */}
-            <header className="glass-strong sticky top-0 z-50 border-b border-white/50">
-                <div className="max-w-2xl mx-auto flex items-center justify-between px-4 py-3">
-                    <Link href="/" className="flex items-center gap-2">
-                        <span className="text-xl">✈️</span>
-                        <span className="text-lg font-bold gradient-text">旅游助手</span>
-                    </Link>
+            <TicketNav
+                links={[{ label: "车票夹", href: "/trips", active: true }]}
+                actions={
                     <Button variant="primary" size="sm" onClick={() => router.push("/")}>
                         ＋ 新行程
                     </Button>
-                </div>
-            </header>
+                }
+            />
 
             <div className="max-w-2xl mx-auto px-4 py-8">
-                <div className="flex items-center justify-between mb-6">
+                {/* 票夹页头 */}
+                <div className="flex items-end justify-between mb-7">
                     <div>
-                        <h1 className="text-2xl font-bold text-stone-800">我的行程</h1>
-                        <p className="text-sm text-stone-400 mt-1">共 {trips.length} 个行程</p>
+                        <p className="font-mono text-[11px] tracking-[0.35em] text-gate">MY TICKETS · 车票夹</p>
+                        <h1 className="mt-2 font-serif text-3xl font-black text-ink">我的车票</h1>
                     </div>
+                    <p className="font-mono text-[11px] tracking-[0.1em] text-mist pb-1.5">
+                        共 {trips.length} 张
+                    </p>
                 </div>
 
                 {trips.length === 0 ? (
-                    <Card variant="glass">
-                        <div className="flex flex-col items-center py-16 text-center">
-                            <div className="text-6xl mb-4">🗺️</div>
-                            <p className="text-stone-500 font-medium mb-1">还没有行程</p>
-                            <p className="text-sm text-stone-400 mb-6">
-                                回到首页，告诉 AI 你想去哪里
-                            </p>
-                            <Button variant="primary" size="sm" onClick={() => router.push("/")}>
-                                开始规划
-                            </Button>
+                    /* 空票夹 */
+                    <div className="border-[1.5px] border-dashed border-char/35 rounded-lg bg-ticket-face/60 px-6 py-14 flex flex-col items-center text-center">
+                        <div className="relative w-44 h-20 mb-6">
+                            <div className="absolute inset-0 -rotate-[4deg] rounded-md border-[1.5px] border-dashed border-mist/60 bg-paper" />
+                            <div className="absolute inset-0 rotate-[3deg] rounded-md border-[1.5px] border-dashed border-mist/80 bg-ticket-face flex items-center justify-center">
+                                <span className="font-mono text-[9px] tracking-[0.3em] text-mist">NO TICKET</span>
+                            </div>
                         </div>
-                    </Card>
+                        <p className="font-serif text-lg font-bold text-ink">票夹还是空的</p>
+                        <p className="mt-1.5 text-sm text-mist">
+                            回到首页，告诉 AI 你想去哪里，第一张票马上开
+                        </p>
+                        <Button variant="primary" size="sm" className="mt-6" onClick={() => router.push("/")}>
+                            去开第一张票
+                        </Button>
+                    </div>
                 ) : (
                     <div className="space-y-3">
                         {trips.map((trip, i) => (

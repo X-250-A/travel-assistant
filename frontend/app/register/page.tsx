@@ -2,8 +2,8 @@
 
 import { Suspense, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Card from "@/components/ui/Card";
 import AuthForm from "@/components/auth/AuthForm";
+import Barcode from "@/components/ui/Barcode";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -26,31 +26,51 @@ function RegisterContent() {
     }, [user, router]);
 
     return (
-        <div className="min-h-screen flex flex-col items-center justify-center px-4">
+        <div className="min-h-screen flex flex-col items-center justify-center px-4 py-10">
             <Link
                 href="/"
-                className="flex items-center gap-1.5 text-sm text-stone-400 hover:text-orange-500 transition-colors mb-8"
+                className="font-mono text-xs tracking-[0.2em] text-mist hover:text-gate transition-colors mb-10"
             >
-                <span>←</span>
-                <span>返回首页</span>
+                ← 返回首页
             </Link>
 
             <div className="w-full max-w-sm animate-scale-in">
-                <div className="text-center mb-8">
-                    <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-400 to-rose-500 shadow-xl shadow-orange-200 mb-4">
-                        <span className="text-3xl">✈️</span>
-                    </div>
-                    <h1 className="text-2xl font-bold text-stone-800">创建账号</h1>
-                    <p className="text-sm text-stone-400 mt-1">开始你的 AI 旅行规划之旅</p>
+                {/* 签发窗口眉标 */}
+                <div className="text-center mb-7">
+                    <p className="font-mono text-[11px] tracking-[0.35em] text-gate">GATE A1 · ISSUE</p>
+                    <h1 className="mt-3 font-serif text-3xl font-black text-ink">新旅客登记</h1>
+                    <p className="mt-2 text-sm text-mist">写下名字和密码，第一张车票马上打印</p>
                 </div>
 
-                <Card variant="glass">
-                    <AuthForm mode="register" />
-                </Card>
+                {/* 待签发车票 */}
+                <div className="relative bg-ticket-face border border-char rounded-lg shadow-[0_24px_44px_-26px_rgba(38,34,28,0.55)]">
+                    <div className="px-5 pt-5 pb-4">
+                        <div className="flex items-center justify-between font-mono text-[10px] tracking-[0.18em]">
+                            <span className="text-ink">TRAVEL PASS — SIGN UP</span>
+                            <span className="text-mist">NO. 2610</span>
+                        </div>
+                        <div className="mt-4">
+                            <AuthForm mode="register" />
+                        </div>
+                    </div>
 
-                <p className="text-center text-sm text-stone-400 mt-6">
+                    {/* 撕票线与打孔 */}
+                    <div className="relative">
+                        <div className="border-t-[1.5px] border-dashed border-char/40" />
+                        <span aria-hidden="true" className="absolute -left-[9px] -top-[9px] w-[18px] h-[18px] rounded-full bg-paper" />
+                        <span aria-hidden="true" className="absolute -right-[9px] -top-[9px] w-[18px] h-[18px] rounded-full bg-paper" />
+                    </div>
+
+                    {/* 票根 */}
+                    <div className="flex items-center justify-between px-5 py-3 bg-ink/[0.04]">
+                        <span className="font-mono text-[9px] tracking-[0.22em] text-char/50">STUB · 存根联</span>
+                        <Barcode className="h-3" color="rgba(38, 34, 28, 0.5)" />
+                    </div>
+                </div>
+
+                <p className="text-center text-sm text-mist mt-6">
                     已有账号？{" "}
-                    <Link href="/login" className="text-orange-500 hover:text-orange-600 font-medium transition-colors">
+                    <Link href="/login" className="text-gate hover:text-gate-dark font-medium transition-colors">
                         去登录 →
                     </Link>
                 </p>

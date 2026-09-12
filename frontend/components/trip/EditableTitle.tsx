@@ -13,21 +13,24 @@ export default function EditableTitle({ trip, onSaved }: Props) {
     const [editing, setEditing] = useState(false);
     const [value, setValue] = useState(trip.title);
     const [saving, setSaving] = useState(false);
+    const [error, setError] = useState("");
 
     const startEdit = () => {
         setValue(trip.title);
+        setError("");
         setEditing(true);
     };
 
     const cancel = () => {
         setEditing(false);
         setValue(trip.title);
+        setError("");
     };
 
     const save = async () => {
         const title = value.trim();
         if (!title) {
-            alert("标题不能为空");
+            setError("标题不能为空");
             return;
         }
         if (title === trip.title) {
@@ -41,7 +44,7 @@ export default function EditableTitle({ trip, onSaved }: Props) {
             onSaved(updated);
             setEditing(false);
         } catch (err) {
-            alert(err instanceof Error ? err.message : "保存失败");
+            setError(err instanceof Error ? err.message : "保存失败");
         } finally {
             setSaving(false);
         }
@@ -59,32 +62,44 @@ export default function EditableTitle({ trip, onSaved }: Props) {
                     }}
                     autoFocus
                     maxLength={200}
-                    className="w-full text-xl font-bold text-stone-800 bg-white border border-orange-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-300"
+                    className="w-full text-xl font-serif font-bold text-ink bg-ticket-face border border-gate rounded-md px-3 py-1.5
+                               focus:outline-none focus-visible:ring-2 focus-visible:ring-gate/40"
                 />
                 <button
                     onClick={save}
                     disabled={saving}
-                    className="shrink-0 px-3 py-1.5 text-sm rounded-lg bg-gradient-to-r from-orange-500 to-rose-500 text-white hover:from-orange-600 hover:to-rose-600 transition-colors disabled:opacity-50"
+                    className="shrink-0 px-3 py-1.5 text-sm rounded-md bg-gate text-[#FFFDF7] hover:bg-gate-dark transition-colors disabled:opacity-50
+                               focus-visible:outline focus-visible:outline-2 focus-visible:outline-gate focus-visible:outline-offset-2"
                 >
                     {saving ? "保存中..." : "保存"}
                 </button>
                 <button
                     onClick={cancel}
                     disabled={saving}
-                    className="shrink-0 px-3 py-1.5 text-sm rounded-lg text-stone-500 border border-stone-200 hover:border-stone-300 hover:text-stone-700 transition-colors disabled:opacity-50"
+                    className="shrink-0 px-3 py-1.5 text-sm rounded-md text-mist border border-char/30 hover:text-ink hover:border-char/50 transition-colors disabled:opacity-50
+                               focus-visible:outline focus-visible:outline-2 focus-visible:outline-gate focus-visible:outline-offset-2"
                 >
                     取消
                 </button>
+                {error && (
+                    <span className="basis-full flex items-center gap-1.5 font-mono text-[10px] tracking-[0.15em] text-stamp-red">
+                        <span className="border border-stamp-red/50 rounded px-1">ERR</span>
+                        <span className="font-sans tracking-normal">{error}</span>
+                    </span>
+                )}
             </div>
         );
     }
 
     return (
         <div className="flex items-center gap-2 group flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-stone-800 truncate">{trip.title}</h2>
+            <h2 className="text-xl font-serif font-bold text-ink truncate group-hover:underline decoration-gate/60 decoration-dashed underline-offset-4">
+                {trip.title}
+            </h2>
             <button
                 onClick={startEdit}
-                className="shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-1 text-stone-400 hover:text-orange-600 hover:bg-orange-50 rounded"
+                className="shrink-0 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity p-1 text-mist hover:text-gate hover:bg-gate/10 rounded
+                           focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gate"
                 title="编辑标题"
             >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

@@ -1,22 +1,34 @@
 @import "tailwindcss";
 
-/* ── 设计令牌 (Design Tokens) ────────────────────────────────────── */
+/* ── 设计令牌 (Design Tokens) — 车票主题 ──────────────────────────── */
 :root {
-  --color-primary: #f97316;
-  --color-primary-light: #fb923c;
-  --color-primary-dark: #ea580c;
-  --color-accent: #0ea5e9;
-  --color-accent-light: #38bdf8;
+  /* 车票七色 */
+  --color-paper: #F7F3EA;        /* 页面底：车票米 */
+  --color-ink: #16324F;          /* 墨蓝：标题、主文字 */
+  --color-gate: #E56A1F;         /* 检票橙：CTA、强调 */
+  --color-gate-dark: #C85512;    /* 检票橙·深：hover */
+  --color-mist: #7A9AA8;         /* 烟青：次要文字、辅助线 */
+  --color-char: #26221C;         /* 炭墨：票面细节、边框 */
+  --color-ticket-face: #FFFDF7;  /* 票面米白 */
+  --color-stamp-red: #C8442A;    /* 邮戳红：状态章、错误 */
+
+  /* 兼容旧令牌（重指向车票色） */
+  --color-primary: #E56A1F;
+  --color-primary-light: #F08A45;
+  --color-primary-dark: #C85512;
+  --color-accent: #16324F;
+  --color-accent-light: #2C4A6E;
   --color-success: #10b981;
   --color-warning: #f59e0b;
-  --color-surface: #fafaf9;
-  --color-surface-alt: #f5f5f4;
-  --color-text: #1c1917;
-  --color-text-muted: #78716c;
-  --color-border: #e7e5e4;
+  --color-surface: #FFFDF7;
+  --color-surface-alt: #F1EDE2;
+  --color-text: #26221C;
+  --color-text-muted: #7A9AA8;
+  --color-border: rgba(38, 34, 28, 0.16);
 
   --font-sans: 'Noto Sans SC', ui-sans-serif, system-ui, sans-serif;
   --font-serif: 'Noto Serif SC', ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace;
   --radius-sm: 0.5rem;
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
@@ -25,26 +37,36 @@
 
 /* ── Tailwind 主题扩展 ───────────────────────────────────────────── */
 @theme inline {
-  --color-primary: #f97316;
-  --color-primary-light: #fb923c;
-  --color-primary-dark: #ea580c;
-  --color-accent: #0ea5e9;
-  --color-accent-light: #38bdf8;
+  --color-paper: #F7F3EA;
+  --color-ink: #16324F;
+  --color-gate: #E56A1F;
+  --color-gate-dark: #C85512;
+  --color-mist: #7A9AA8;
+  --color-char: #26221C;
+  --color-ticket-face: #FFFDF7;
+  --color-stamp-red: #C8442A;
+
+  --color-primary: #E56A1F;
+  --color-primary-light: #F08A45;
+  --color-primary-dark: #C85512;
+  --color-accent: #16324F;
+  --color-accent-light: #2C4A6E;
   --color-success: #10b981;
   --color-warning: #f59e0b;
-  --color-surface: #fafaf9;
-  --color-surface-alt: #f5f5f4;
-  --color-text: #1c1917;
-  --color-text-muted: #78716c;
-  --color-border: #e7e5e4;
+  --color-surface: #FFFDF7;
+  --color-surface-alt: #F1EDE2;
+  --color-text: #26221C;
+  --color-text-muted: #7A9AA8;
+  --color-border: rgba(38, 34, 28, 0.16);
+
   --font-sans: 'Noto Sans SC', ui-sans-serif, system-ui, sans-serif;
   --font-serif: 'Noto Serif SC', ui-serif, Georgia, serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'SFMono-Regular', Menlo, monospace;
 }
 
 /* ── 基础重置 ─────────────────────────────────────────────────────── */
 body {
-  background: linear-gradient(135deg, #fef9ef 0%, #fef3e4 30%, #fdf2f8 70%, #f0f9ff 100%);
-  background-attachment: fixed;
+  background-color: var(--color-paper);
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
@@ -143,8 +165,19 @@ body {
   animation: scaleIn 0.3s ease-out forwards;
 }
 
+/* prefers-reduced-motion：全部进场动画降级为直接可见 */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .animate-fade-in,
+  .animate-slide-in-left,
+  .animate-slide-in-right,
+  .animate-scale-in {
+    animation: none;
+  }
+}
+
 .gradient-text {
-  background: linear-gradient(135deg, #f97316, #ec4899, #8b5cf6);
+  background: linear-gradient(120deg, #E56A1F, #C8442A);
   background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -153,17 +186,17 @@ body {
 }
 
 .glass {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: rgba(255, 253, 247, 0.78);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(38, 34, 28, 0.12);
 }
 
 .glass-strong {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  background: rgba(247, 243, 234, 0.92);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(38, 34, 28, 0.14);
 }
 
 /* ── 滚动条美化 ───────────────────────────────────────────────────── */
@@ -177,17 +210,17 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #d6d3d1;
+  background: #D8D2C4;
   border-radius: 9999px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a29e;
+  background: #BCB4A2;
 }
 
 /* ── 选中文字颜色 ─────────────────────────────────────────────────── */
 ::selection {
-  background: rgba(249, 115, 22, 0.2);
+  background: rgba(229, 106, 31, 0.22);
   color: var(--color-text);
 }
 
@@ -215,12 +248,12 @@ body {
 
 .message-content strong {
   font-weight: 600;
-  color: #ea580c;
+  color: #C85512;
 }
 
 .message-content code {
-  background: #fef3e4;
-  color: #c2410c;
+  background: #F3ECDD;
+  color: #A8480F;
   padding: 0.1em 0.35em;
   border-radius: 4px;
   font-size: 0.9em;
@@ -236,4 +269,64 @@ body {
 
 .message-content p:last-child {
   margin-bottom: 0;
+}
+
+/* ── 车票导航栏（TicketNav）───────────────────────────────────────── */
+.ticket-nav {
+  background: rgba(247, 243, 234, 0.94);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+/* 撕票线底边：虚线 + 两端打孔半圆（与票卡撕线同语汇） */
+.ticket-nav-perf {
+  position: relative;
+  height: 8px;
+  background-image: linear-gradient(
+    to right,
+    rgba(38, 34, 28, 0.28) 0 6px,
+    transparent 6px 12px
+  );
+  background-size: 12px 1px;
+  background-repeat: repeat-x;
+  background-position: 0 50%;
+}
+.ticket-nav-perf::before,
+.ticket-nav-perf::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: var(--color-surface);
+  border: 1px solid rgba(38, 34, 28, 0.14);
+  transform: translateY(-50%);
+}
+.ticket-nav-perf::before { left: -8px; }
+.ticket-nav-perf::after { right: -8px; }
+
+/* 站牌式导航链接：mono 大写、当前站检票橙划线 */
+.ticket-nav-link {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  color: var(--color-mist);
+  padding: 0.25rem 0.125rem;
+  border-bottom: 1.5px solid transparent;
+  transition: color 0.2s, border-color 0.2s;
+}
+.ticket-nav-link:hover { color: var(--color-gate); }
+.ticket-nav-link:focus-visible {
+  outline: 2px solid var(--color-gate);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.ticket-nav-link.is-active {
+  color: var(--color-gate);
+  border-bottom-color: var(--color-gate);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticket-nav-link { transition: none; }
 }

@@ -34,30 +34,30 @@ export default function AuthForm({ mode }: Props) {
             className="space-y-4"
         >
             {error && (
-                <div className="rounded-xl bg-red-50 border border-red-100 p-3.5 text-sm text-red-600 flex items-start gap-2.5">
-                    <span className="shrink-0 mt-0.5">⚠️</span>
+                <div className="rounded-md border border-stamp-red/60 bg-stamp-red/[0.06] p-3 text-sm text-stamp-red flex items-start gap-2.5">
+                    <span className="shrink-0 font-mono text-[10px] tracking-[0.25em] mt-1">ERR</span>
                     <span>{error}</span>
                 </div>
             )}
 
             <div>
-                <label className="block text-xs font-medium text-stone-500 mb-1.5">
-                    用户名
+                <label className="block font-mono text-[10px] tracking-[0.18em] text-mist mb-1.5">
+                    用户名 · USERNAME
                 </label>
                 <input
                     placeholder="请输入用户名"
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     disabled={loading}
-                    className="w-full rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm
-                               placeholder:text-stone-300 focus:border-orange-300 focus:bg-white focus:outline-none
-                               focus:ring-2 focus:ring-orange-100 transition-all duration-200"
+                    className="w-full rounded-md border border-char/30 bg-ink/[0.03] px-4 py-2.5 text-sm text-ink
+                               placeholder:text-mist/70 focus:border-gate focus:outline-none focus-visible:ring-2 focus-visible:ring-gate/30
+                               transition-all duration-200 disabled:opacity-60"
                 />
             </div>
 
             <div>
-                <label className="block text-xs font-medium text-stone-500 mb-1.5">
-                    密码
+                <label className="block font-mono text-[10px] tracking-[0.18em] text-mist mb-1.5">
+                    密码 · PASSWORD
                 </label>
                 <input
                     type="password"
@@ -65,14 +65,14 @@ export default function AuthForm({ mode }: Props) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     disabled={loading}
-                    className="w-full rounded-xl border border-stone-200 bg-stone-50 px-4 py-2.5 text-sm
-                               placeholder:text-stone-300 focus:border-orange-300 focus:bg-white focus:outline-none
-                               focus:ring-2 focus:ring-orange-100 transition-all duration-200"
+                    className="w-full rounded-md border border-char/30 bg-ink/[0.03] px-4 py-2.5 text-sm text-ink
+                               placeholder:text-mist/70 focus:border-gate focus:outline-none focus-visible:ring-2 focus-visible:ring-gate/30
+                               transition-all duration-200 disabled:opacity-60"
                 />
             </div>
 
             <Button type="submit" loading={loading} size="lg" className="w-full">
-                {mode === "login" ? "登录" : "创建账号"}
+                {mode === "login" ? "检票进站" : "签发车票"}
             </Button>
         </form>
     );

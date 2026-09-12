@@ -21,14 +21,12 @@ export default function Loading({ size = "md", text = "加载中..." }: LoadingP
     return (
         <div className="flex flex-col items-center justify-center gap-3 py-8">
             <div className={`relative ${spinnerSize[size]}`}>
+                <div className={`absolute inset-0 rounded-full border-4 border-gate/15`} />
                 <div
-                    className={`absolute inset-0 rounded-full border-4 border-orange-100`}
-                />
-                <div
-                    className={`absolute inset-0 rounded-full border-4 border-transparent border-t-orange-500 animate-spin`}
+                    className={`absolute inset-0 rounded-full border-4 border-transparent border-t-gate animate-spin`}
                 />
             </div>
-            <p className={`text-stone-400 font-medium ${textSize[size]}`}>{text}</p>
+            <p className={`text-mist font-medium ${textSize[size]}`}>{text}</p>
         </div>
     );
 }
