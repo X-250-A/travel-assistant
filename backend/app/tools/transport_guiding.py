@@ -1,6 +1,9 @@
+from math import asin, cos, radians, sin, sqrt
+
 import httpx
-from math import radians, sin, cos, sqrt, asin
+
 from backend.app import settings
+from backend.app.config import PLACEHOLDER_MARKER
 from backend.app.tools import Tool
 
 # 热门旅游城市经纬度（高德坐标系 GCJ-02）
@@ -61,11 +64,13 @@ async def transport_guiding(from_city: str, to_city: str, preference: str = "均
     origin_coord = CITY_COORDS.get(from_city)
     dest_coord = CITY_COORDS.get(to_city)
     if not origin_coord or not dest_coord:
-        missing = [c for c, v in {"出发地": from_city, "目的地": to_city}.items() if v not in CITY_COORDS]
+        missing = [
+            c for c, v in {"出发地": from_city, "目的地": to_city}.items() if v not in CITY_COORDS
+        ]
         return f"暂不支持{'、'.join(missing)}的交通查询。当前支持：{'、'.join(CITY_COORDS.keys())}"
 
     # 2. 如有高德 API Key 则调用精确接口
-    amap_key = settings.AMAP_API_KEY and not settings.AMAP_API_KEY.startswith("change-me")
+    amap_key = settings.AMAP_API_KEY and not settings.AMAP_API_KEY.startswith(PLACEHOLDER_MARKER)
     if amap_key:
         try:
             data = await _query_amap_route(settings.AMAP_API_KEY, origin_coord, dest_coord)
