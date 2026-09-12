@@ -11,6 +11,7 @@ dependencies = [
     "fastapi>=0.139.0",
     "openai>=2.45.0",
     "passlib>=1.7.4",
+    "pre-commit>=4.6.2",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "python-jose>=3.5.0",
@@ -27,6 +28,7 @@ dev = [
     "pytest>=8",
     "httpx>=0.28",
     "pytest-asyncio>=1.4.0",
+    "pre-commit>=4.6.2",
 ]
 
 [tool.uv]
@@ -38,9 +40,47 @@ link-mode = "copy"
 target-version = "py314"
 line-length = 100
 src = ["backend"]
+# 只审查 backend，规避无关目录（虚拟环境、前端产物、缓存等）
+extend-exclude = [".venv", "frontend", ".git", "build", "dist", "node_modules"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
+select = [
+    "E",     # pycodestyle 错误
+    "W",     # pycodestyle 警告
+    "F",     # pyflakes（未使用导入/变量等）
+    "I",     # isort（导入排序）
+    "UP",    # pyupgrade（现代语法）
+    "B",     # flake8-bugbear（常见 bug 检测）
+    "SIM",   # flake8-simplify（简化写法）
+    "ASYNC", # flake8-async（asyncio 相关检查）
+]
+# 行宽由 ruff format 统一处理，关闭 E501，避免与格式化器冲突
+ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 的 Depends/Query/Header 等是标准的默认参数用法，B008 不应视为错误
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Header",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Cookie",
+    "fastapi.Form",
+    "fastapi.File",
+    "fastapi.security.HTTPBasic",
+    "fastapi.security.HTTPBearer",
+    "fastapi.security.OAuth2PasswordBearer",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试文件：允许在断言中写较长字符串，不强制过度简化
+"backend/tests/**" = ["SIM", "E501"]
+
+[tool.ruff.format]
+# 与现有代码保持一致：统一使用双引号
+quote-style = "double"
+indent-style = "space"
 
 [tool.pytest.ini_options]
 testpaths = ["backend/tests"]

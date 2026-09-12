@@ -1,0 +1,31 @@
+# pre-commit 配置
+# 安装后首次使用：pre-commit install
+# 手动全量检查：pre-commit run --all-files
+# 跳过钩子临时提交：git commit --no-verify
+
+repos:
+  # ruff 版本与本地安装一致（ruff 0.15.21），保证行为同步
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.21
+    hooks:
+      # lint + 自动修复；有可修复项时返回非零，阻止提交
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix]
+        # 只检查 backend（与 pyproject.toml 的 src 一致），
+        # 避免 pre-commit 把未追踪的前端产物也传进来
+        files: ^backend/
+        types_or: [python, pyi]
+      # 代码格式化（对应 ruff format）
+      - id: ruff-format
+        files: ^backend/
+        types_or: [python, pyi]
+
+  # 基础文件卫生检查
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
