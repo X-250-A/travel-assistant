@@ -1,6 +1,10 @@
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import logging
+
 from backend.app import settings
 
+
+logger = logging.getLogger(__name__)
 # 创建异步引擎
 
 engine = create_async_engine(
@@ -18,14 +22,17 @@ AsyncSessionLocal = async_sessionmaker(
     class_=AsyncSession,
 )
 
+
 # 创建依赖项
 async def get_db():
     async with AsyncSessionLocal() as db:
         try:
             yield db
             await db.commit()
-        except:
+            logger.info("DB Committed")
+        except Exception:
             await db.rollback()
+            logger.warning("DB Rollback")
             raise
         finally:
             await db.close()
