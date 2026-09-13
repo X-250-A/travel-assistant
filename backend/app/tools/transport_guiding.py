@@ -4,6 +4,7 @@ import httpx
 
 from backend.app import settings
 from backend.app.config import PLACEHOLDER_MARKER
+from backend.app.logging_config import logger
 from backend.app.tools import Tool
 
 # 热门旅游城市经纬度（高德坐标系 GCJ-02）
@@ -76,7 +77,7 @@ async def transport_guiding(from_city: str, to_city: str, preference: str = "均
             data = await _query_amap_route(settings.AMAP_API_KEY, origin_coord, dest_coord)
             return _format_amap_result(from_city, to_city, data, preference)
         except Exception as e:
-            print(f"[WARN] 高德 API 查询失败，降级到规则估算: {e}")
+            logger.warning("高德 API 查询失败，降级到规则估算：%s", e)
 
     # 3. 降级：规则估算
     dist = _calc_distance(origin_coord, dest_coord)

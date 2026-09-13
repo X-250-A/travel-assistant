@@ -4,7 +4,9 @@ import random
 import httpx
 
 from backend.app import settings
+from backend.app.config import PLACEHOLDER_MARKER
 from backend.app.db import get_redis
+from backend.app.logging_config import logger
 from backend.app.tools import Tool
 
 WEATHER_PARAMETERS = {
@@ -16,27 +18,42 @@ WEATHER_PARAMETERS = {
 async def get_weather(city: str, date: str = None):
     api_key = settings.WEATHER_API_KEY
 
+    # 1. 降级：WEATHER_API_KEY 仍是占位符 → 返回提示
+    if PLACEHOLDER_MARKER in api_key:
+        return "暂未配置天气查询服务"
+
     # key归一化，预防同一数据不同写法导致key不同，降低缓存命中率
     normalized_date = date or datetime.date.today().isoformat()
 
-    # 查缓存，命中则返回
+    # 2. 查缓存，命中则返回
     cache_key = f"weather:{city}:{normalized_date}"
-    r = await get_redis(0)
-    cached = await r.get(cache_key)
-    await r.aclose()
-    if cached:
-        return cached
+    try:
+        r = await get_redis(0)
+        cached = await r.get(cache_key)
+        await r.aclose()
+        if cached:
+            return cached
+    except Exception as e:
+        logger.warning("天气缓存读取失败，跳过缓存：%s", e)
 
     params = {"key": api_key, "q": city, "days": date and 3 or 1, "lang": "zh"}
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            "https://api.weatherapi.com/v1/forecast.json",
-            params=params,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    # 3. miss → httpx 调天气 API
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                "https://api.weatherapi.com/v1/forecast.json",
+                params=params,
+                timeout=10,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPError as e:
+        logger.warning("天气查询失败(HTTP)：%s", e)
+        return "天气查询暂时不可用，请稍后再试"
+    except Exception as e:
+        logger.error("天气查询异常：%s", e)
+        return "天气查询暂时不可用，请稍后再试"
 
     c = data["current"]
     result = f"【{city} 当前天气】\n"
@@ -44,9 +61,13 @@ async def get_weather(city: str, date: str = None):
     result += f"  温度：{c['temp_c']}°C（体感 {c['feelslike_c']}°C）\n"
     result += f"  湿度：{c['humidity']}%　风速：{c['wind_kph']}km/h"
 
-    r = await get_redis(0)
-    await r.setex(cache_key, settings.WEATHER_CACHE_TTL + random.randint(-300, 300), result)
-    await r.aclose()
+    # 4. 写缓存 + 预防缓存雪崩
+    try:
+        r = await get_redis(0)
+        await r.setex(cache_key, settings.WEATHER_CACHE_TTL + random.randint(-300, 300), result)
+        await r.aclose()
+    except Exception as e:
+        logger.warning("天气缓存写入失败：%s", e)
 
     return result
 

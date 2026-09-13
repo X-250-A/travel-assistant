@@ -5,6 +5,7 @@ import httpx
 from backend.app import settings
 from backend.app.config import PLACEHOLDER_MARKER
 from backend.app.db import get_redis
+from backend.app.logging_config import logger
 from backend.app.tools import Tool
 
 POI_PARAMETERS = {
@@ -43,7 +44,7 @@ async def search_poi(city: str, keyword: str = "景点", limit: int = 10):
         if cached:
             return cached
     except Exception as e:
-        print(f"[WARN] 读穿失败，跳过缓存：{e}")
+        logger.warning("读穿失败，跳过缓存：%s", e)
 
     # 3. miss → httpx 调高德 v3 place/text
     params = {
@@ -64,7 +65,7 @@ async def search_poi(city: str, keyword: str = "景点", limit: int = 10):
             resp.raise_for_status()
             data = resp.json()
     except Exception as e:
-        print(f"高德API查询失败：{e}")
+        logger.warning("高德 API 查询失败：%s", e)
         return "景点查询暂时不可用，请稍后再试"
 
     # 防线 3:高德业务失败(status != 1) → 把错误信息透传给 LLM
@@ -81,7 +82,7 @@ async def search_poi(city: str, keyword: str = "景点", limit: int = 10):
         await r.setex(cache_key, settings.POI_CACHE_TTL + random.randint(-600, 600), results)
         await r.aclose()
     except Exception as e:
-        print(f"Redis 写入缓存失败：{e}")
+        logger.warning("Redis 写入缓存失败：%s", e)
 
     return results
 

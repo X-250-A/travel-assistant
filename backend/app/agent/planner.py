@@ -13,6 +13,7 @@ from redis.asyncio import Redis
 from backend.app import settings
 from backend.app.agent import ConversationManager
 from backend.app.crud import find_trip_by_id, update_trip
+from backend.app.logging_config import logger
 from backend.app.memory import (
     extract_preferences,
     load_preferences,
@@ -134,7 +135,7 @@ class TripPlannerAgent:
                 await update_trip(conversation.db, conversation.trip_id, plan_data=plan_data)
 
             except Exception as e:
-                print(f"[ERROR] 保存行程失败: {e}")
+                logger.error("保存行程失败：%s", e)
 
         # 6. 保存 AI 回复（自然语言部分，不含 JSON 代码块）
         await conversation.add_message("assistant", display_text)
@@ -196,7 +197,7 @@ class TripPlannerAgent:
             except json.JSONDecodeError, TypeError:
                 pass
 
-        print(f"[WARN] 未在回复中找到有效 JSON，原始输出前200字: {full_text[:200]}")
+        logger.warning("未在回复中找到有效 JSON，原始输出前200字：%s", full_text[:200])
         return full_text, None
 
     async def _save_memory(self, user_input: str, conversation, r: Redis):
@@ -218,7 +219,7 @@ class TripPlannerAgent:
             for fact, vec in zip(facts, vecs, strict=False):
                 await save_vector_memory(r, conversation.user_id, fact, vec)
         except Exception as e:
-            print(f"[WARN] 向量记忆保存失败，跳过：{e}")
+            logger.warning("向量记忆保存失败，跳过：%s", e)
 
     async def llm_classify_intent(self, user_input: str, conversation):
         """LLM轻量意图识别"""
@@ -256,7 +257,7 @@ class TripPlannerAgent:
                 intent = "unclear"
             return intent
         except Exception as e:
-            print(f"[WARN] LLM 意图分类失败，回退关键词: {e}")
+            logger.warning("LLM 意图分类失败，回退关键词：%s", e)
             # 4. fallback 到关键词匹配
             return self._keyword_classify(user_input)
 
@@ -323,7 +324,7 @@ class TripPlannerAgent:
                 issues = []
             issues = [str(i) for i in issues][:3]
         except Exception as e:
-            print(f"[WARN] 审查结果解析失败: {e}")
+            logger.warning("审查结果解析失败：%s", e)
             return None
 
         return {"passed": passed, "scores": scores, "issues": issues}
@@ -424,7 +425,7 @@ class TripPlannerAgent:
 
         # 调用上限后的兜底处理
         # ← 走到这里说明 10 轮工具调用后 LLM 还在要工具
-        print(f"[WARN] 工具调用超过 {MAX_TOOL_ROUND} 轮，强制结束")
+        logger.warning("工具调用超过 %s 轮，强制结束", MAX_TOOL_ROUND)
         # 兜底：把当前上下文流式输出
         async for chunk in self.llm_client.chat_stream(messages):
             yield {"type": "token", "content": chunk}
