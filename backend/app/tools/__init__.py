@@ -2,16 +2,19 @@
 
 from backend.app.tools.base import Tool
 from backend.app.tools.budget_calculate import budget_calculate, budget_calculate_tool
+from backend.app.tools.food_recommend import food_recommend, food_recommend_tool
 from backend.app.tools.poi import format_pois, poi_tool, search_poi
 from backend.app.tools.transport_guiding import transport_guiding, transport_guiding_tool
 from backend.app.tools.weather import get_weather, weather_tool
 
 ALL_TOOLS: list = [
     weather_tool,
+    food_recommend_tool,
     budget_calculate_tool,
     transport_guiding_tool,
     poi_tool,
 ]
+
 
 
 def get_tool_schema():
@@ -33,10 +36,12 @@ __all__ = [
     "get_tool_schema",
     "execute_tool",
     "weather_tool",
+    "food_recommend_tool",
     "budget_calculate_tool",
     "transport_guiding_tool",
     "poi_tool",
     "get_weather",
+    "food_recommend",
     "budget_calculate",
     "transport_guiding",
     "format_pois",
