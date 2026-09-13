@@ -46,7 +46,7 @@
 │       │   ├── __init__.py      # 工具注册与调度
 │       │   ├── weather.py       # 天气预报工具
 │       │   └── budget_calculate.py  # 预算估算工具
-│       ├── middleware/           # 认证中间件
+│       ├── middleware/           # 认证/计时中间件
 │       └── utils/               # JWT, 密码哈希
 ├── frontend/
 │   ├── app/                     # Next.js App Router 页面
