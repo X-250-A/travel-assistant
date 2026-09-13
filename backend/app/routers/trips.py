@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/trips", tags=["trips"])
 
 @router.get("", response_model=TripListResponse)
 async def list_trips(
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User = Depends(get_current_user),
     page: int = 1,
     page_size: int = 100,
@@ -36,7 +36,7 @@ async def list_trips(
 
 @router.get("/{trip_id}", response_model=TripResponse)
 async def get_trip(
-    trip_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
+    trip_id: int, db: AsyncSession = Depends(get_db, scope="function"), current_user: User = Depends(get_current_user)
 ):
     # 行程校验
     trip = await find_trip_by_id(db, trip_id)
@@ -51,7 +51,7 @@ async def get_trip(
 
 @router.delete("/{trip_id}")
 async def remove_trip(
-    trip_id: int, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
+    trip_id: int, db: AsyncSession = Depends(get_db, scope="function"), current_user: User = Depends(get_current_user)
 ):
     trip = await find_trip_by_id(db, trip_id)
     if trip is None:
@@ -66,7 +66,7 @@ async def remove_trip(
 async def patch_trip(
     trip_id: int,
     body: TripUpdateRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User = Depends(get_current_user),
 ):
     """更新行程：支持修改 title 或 status（如 draft → confirmed）"""
@@ -87,7 +87,7 @@ async def patch_trip(
 @router.get("/{trip_id}/messages", response_model=list[MessageItem])
 async def get_messages(
     trip_id: int,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     current_user: User = Depends(get_current_user),
 ):
     """获取行程的所有历史对话消息"""

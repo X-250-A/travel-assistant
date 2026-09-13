@@ -11,6 +11,7 @@ from backend.app.middleware import jwt_middleware
 # 必须在 create_all 之前导入所有 model，否则它们不会注册到 Base.metadata
 from backend.app.models import Base, Message, Trip, User  # noqa: F401
 from backend.app.routers import auth, chat, trips
+from backend.app.middleware import timing_middleware
 
 setup_logging()
 
@@ -39,6 +40,7 @@ app.add_middleware(
 
 # JWT 鉴权中间件 — 对所有非公开路径校验 token
 app.middleware("http")(jwt_middleware)
+app.middleware("http")(timing_middleware)
 
 app.include_router(auth.router)
 app.include_router(chat.router)

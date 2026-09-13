@@ -15,7 +15,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 @router.post("/register", response_model=UserResponse)
 async def register(
     user_data: RegisterRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     rate: bool = Depends(ip_ratelimit),
 ):
     existing = await user.find_user_by_username(db, user_data.username)
@@ -29,7 +29,7 @@ async def register(
 async def login(
     request: Request,
     user_data: LoginRequest,
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db, scope="function"),
     rate: bool = Depends(ip_ratelimit),
 ):
     # IP限流防批量注册登录

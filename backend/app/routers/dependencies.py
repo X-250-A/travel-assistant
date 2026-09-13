@@ -15,7 +15,7 @@ from backend.app.exceptions import NotFoundError, TooManyRequestsError
 from backend.app.ratelimit import check_rate_limit
 
 
-async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)):
+async def get_current_user(request: Request, db: AsyncSession = Depends(get_db, scope="function")):
     user_id = request.state.user_id
     current_user = await user.find_user_by_id(db, user_id)
     if current_user is None:

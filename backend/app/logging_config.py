@@ -9,6 +9,7 @@ from pathlib import Path
 _configured = False
 LOG_DIR = Path(__file__).parent / "logs"
 FORMAT = "[%(asctime)s] [%(name)s] [%(levelname)s] %(message)s"
+logger = logging.getLogger("app")
 
 
 def setup_logging():
