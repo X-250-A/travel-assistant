@@ -2,6 +2,7 @@
 
 from backend.app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
 from backend.app.schemas.chat import ChatRequest, DoneEvent, ErrorEvent, PlanEvent, TokenEvent
+from backend.app.schemas.plan import Attraction, DayPlan, Meal, PlanData
 from backend.app.schemas.trip import MessageItem, TripListResponse, TripResponse, TripUpdateRequest
 
 __all__ = [
@@ -18,4 +19,8 @@ __all__ = [
     "TripListResponse",
     "TripUpdateRequest",
     "MessageItem",
+    "PlanData",
+    "DayPlan",
+    "Attraction",
+    "Meal",
 ]

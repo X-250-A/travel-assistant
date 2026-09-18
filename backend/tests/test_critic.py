@@ -437,7 +437,8 @@ class TestCriticModify:
         agent = _make_agent(
             stream_chunks=[
                 "把行程改成四天：\n"
-                + json.dumps({"destination": "成都", "duration": 4, "budget": 3000})
+                # mock 的 LLM 输出必须结构完整（校验层契约：缺字段会被降级为无方案）
+                + json.dumps({**json.loads(FAKE_TRIP_JSON), "duration": 4})
             ],
             critic_response=_mock_critic_response(passed=True),
             classify_intent="modify_trip",

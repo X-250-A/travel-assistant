@@ -4,14 +4,16 @@ TripPlannerAgent: 行程规划 Agent 核心
 封装行程规划 Agent 的核心决策逻辑——理解用户意图、构建 Prompt、调用 LLM、解析行程结果、处理用户反馈。
 """
 
-import contextlib
 import json
-import re
 
+from pydantic import ValidationError
 from redis.asyncio import Redis
 
 from backend.app import settings
 from backend.app.agent import ConversationManager
+from backend.app.agent.critic import CriticReviewer
+from backend.app.agent.extract_json import PlanJSONExtractor
+from backend.app.agent.intent_classifier import IntentClassifier
 from backend.app.crud import find_trip_by_id, update_trip
 from backend.app.logging_config import logger
 from backend.app.memory import (
@@ -21,13 +23,14 @@ from backend.app.memory import (
     save_preferences,
     save_vector_memory,
 )
+from backend.app.schemas.plan import PlanData
 from backend.app.services import EmbeddingClient, LLMClient, PromptBuilder
 from backend.app.tools import execute_tool, get_tool_schema
 
 MAX_TOOL_ROUND = 10
 
 
-class TripPlannerAgent:
+class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
     """行程规划 Agent 核心"""
 
     def __init__(self):
@@ -99,6 +102,16 @@ class TripPlannerAgent:
         # 4. 从回复中分离自然语言文本与结构化 JSON
         display_text, plan_data = self._extract_plan_json(full_text)
 
+        # 4.3 校验层（PlanData 校验模型）—— LLM 输出的 JSON 必须通过结构校验才算合法方案
+        # 校验失败 → 降级为无方案（plan_data=None），走既有兜底路径：
+        # 不存库，前端显示"票面尚未打印"，下次修改行程会触发重新生成
+        if plan_data is not None:
+            try:
+                plan_data = PlanData.model_validate(plan_data).model_dump()
+            except ValidationError as e:
+                logger.warning("行程 JSON 校验未通过，降级为无方案：%s", e.errors()[:3])
+                plan_data = None
+
         # 4.5 Critic 质量审查（v0.8.0）—— 判定树
         # 审查条件（两个都要满足）：
         #   1. settings.CRITIC_ENABLED —— 总开关开启（测试环境用 env 关掉，避免真打 DeepSeek）
@@ -125,6 +138,12 @@ class TripPlannerAgent:
                         conversation=conversation,
                     )
                     new_display, new_plan = self._extract_plan_json(new_text)
+                    # 重生成产物同样过校验层，不合格不采纳（保持 v1 原方案）
+                    if new_plan is not None:
+                        try:
+                            new_plan = PlanData.model_validate(new_plan).model_dump()
+                        except ValidationError:
+                            new_plan = None
                     if new_plan is not None:
                         display_text, plan_data = new_display, new_plan
                         break
@@ -146,60 +165,6 @@ class TripPlannerAgent:
         # 7. 结束 — 把 trip_id 带回前端，让前端知道"刚聊的是哪个行程"
         yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
 
-    def _extract_plan_json(self, full_text: str) -> tuple[str, dict | None]:
-        """从 LLM 回复中分离自然语言文本与 ```json 代码块。
-
-        返回 (display_text, plan_data)。display_text 是展示给用户的自然语言，
-        plan_data 是解析后的行程 JSON；如果未找到 JSON 块，则 plan_data 为 None，
-        display_text 为原始文本。
-        """
-        plan_data = None
-
-        # 优先：按 ```json / ``` 标记拆分
-        parts = full_text.split("```json", 1)
-        if len(parts) == 2:
-            display_text = parts[0].strip()
-            json_part = parts[1]
-            end = json_part.rfind("```")
-            json_str = json_part[:end].strip() if end != -1 else json_part.strip()
-
-            if json_str:
-                with contextlib.suppress(json.JSONDecodeError, TypeError):
-                    plan_data = json.loads(json_str)
-
-            if plan_data is not None:
-                return display_text, plan_data
-
-        # 回退 1：尝试按普通的 ``` 标记提取 JSON
-        triple_parts = full_text.split("```", 1)
-        if len(triple_parts) == 2:
-            # 第一个 ``` 之后、最后一个 ``` 之前的内容
-            rem = triple_parts[1]
-            end2 = rem.rfind("```")
-            candidate = (rem[:end2] if end2 != -1 else rem).strip()
-            # 去掉可能的前导 "json" 标记
-            if candidate.lower().startswith("json"):
-                candidate = candidate[4:].strip()
-            try:
-                plan_data = json.loads(candidate)
-                display_text = full_text.split("```")[0].strip()
-                return display_text, plan_data
-            except json.JSONDecodeError, TypeError:
-                pass
-
-        # 回退 2：兼容没有 ```json 标记的纯 JSON 输出
-        match = re.search(r"\{.*}", full_text, re.DOTALL)
-        if match:
-            try:
-                plan_data = json.loads(match.group())
-                display_text = full_text.replace(match.group(), "").strip()
-                return display_text, plan_data
-            except json.JSONDecodeError, TypeError:
-                pass
-
-        logger.warning("未在回复中找到有效 JSON，原始输出前200字：%s", full_text[:200])
-        return full_text, None
-
     async def _save_memory(self, user_input: str, conversation, r: Redis):
         """LLM 提取可跨会话复用的非结构化记忆 → embed → 写 Redis。全程降级，失败不阻塞"""
         if not self.embedding_client.available():
@@ -220,114 +185,6 @@ class TripPlannerAgent:
                 await save_vector_memory(r, conversation.user_id, fact, vec)
         except Exception as e:
             logger.warning("向量记忆保存失败，跳过：%s", e)
-
-    async def llm_classify_intent(self, user_input: str, conversation):
-        """LLM轻量意图识别"""
-        intent_classifier_prompt = self.prompt_builder.build_intent_classifier_prompt()
-
-        # 构建 messages
-        message = [{"role": "system", "content": intent_classifier_prompt}]
-
-        # 检查对话历史
-        context_hint = ""
-        if conversation.trip_id != 0:
-            context_hint = (
-                f"当前对话有一个已存在的行程（ID={conversation.trip_id}），"
-                f"状态为 {conversation.state.value}。"
-                f"如果用户提到修改、调整、更换等，应归类为 modify_trip。"
-            )
-
-        # 将上下文历史加入 messages
-        if context_hint != "":
-            message.append({"role": "system", "content": context_hint})
-        message.append({"role": "user", "content": user_input})
-
-        try:
-            resp = await self.llm_client.client.chat.completions.create(
-                model=settings.DEEPSEEK_MODEL,
-                messages=message,
-                stream=False,
-                timeout=settings.LLM_REQUEST_TIMEOUT,
-                temperature=0,
-                response_format={"type": "json_object"},
-            )
-            result = json.loads(resp.choices[0].message.content)
-            intent = result.get("intent", "unclear")
-            if intent not in ("new_trip", "modify_trip", "ask_question", "unclear"):
-                intent = "unclear"
-            return intent
-        except Exception as e:
-            logger.warning("LLM 意图分类失败，回退关键词：%s", e)
-            # 4. fallback 到关键词匹配
-            return self._keyword_classify(user_input)
-
-    def _keyword_classify(self, user_input: str):
-        """老方法：关键词匹配"""
-        text = user_input.strip()
-
-        # 修改意图的关键词
-        modified_keywords = ["修改", "调整", "换", "去掉", "增加", "改成", "不要", "换个"]
-        if any(kw in text for kw in modified_keywords):
-            return "modify_trip"
-
-        # 新行程的关键词
-        new_keywords = ["规划", "想去", "安排", "帮我", "推荐", "三日", "几日", "旅游", "旅行"]
-        if any(kw in text for kw in new_keywords):
-            return "new_trip"
-
-        # 提问类
-        question_keywords = ["?", "？", "怎么样", "如何", "什么是", "介绍一下"]
-        if any(kw in text for kw in question_keywords):
-            return "ask_question"
-
-        return "unclear"
-
-    async def _ask_critic(self, plan_data_json: dict, user_input: str, conversation):
-        """构造 Prompt 调用 LLM 开始审查 Json"""
-        extra_system = self.prompt_builder.build_critic_prompt()
-
-        """ 拼接 message """
-        messages = [{"role": "system", "content": extra_system}]
-
-        messages.append(
-            {
-                "role": "user",
-                "content": (
-                    f"用户需求：{user_input}\n"
-                    f"{self.prompt_builder.render_preferences(conversation.pref)}\n"
-                    f"请审查以下行程 JSON：\n"
-                    f"{json.dumps(plan_data_json, ensure_ascii=False, indent=2)}"
-                ),
-            }
-        )
-
-        """非流式调用LLM + 解析审查结果"""
-        # 整个审查调用都可能失败（网络错误 / 返回非 JSON / 字段缺失），
-        # 必须 try 包住，失败返回 None → 上层判定树降级用原方案，不阻断主流程
-        try:
-            response = await self.llm_client.client.chat.completions.create(
-                model=settings.DEEPSEEK_MODEL,
-                timeout=settings.LLM_REQUEST_TIMEOUT,
-                temperature=0,
-                messages=messages,
-                response_format={"type": "json_object"},
-            )
-            result = json.loads(response.choices[0].message.content)
-            passed = result.get("passed")
-            scores = result.get("scores", {})
-            issues = result.get("issues", [])
-            # 防御：LLM 可能自相矛盾（passed=True 但给了修正项），保守按不达标处理，
-            # 保证「有 issues 就触发重生成」这一判定树规则不被绕过
-            if issues and passed is True:
-                passed = False
-            if not isinstance(issues, list):
-                issues = []
-            issues = [str(i) for i in issues][:3]
-        except Exception as e:
-            logger.warning("审查结果解析失败：%s", e)
-            return None
-
-        return {"passed": passed, "scores": scores, "issues": issues}
 
     async def _generate_plan(self, conversation, tool_defs=None):
         """构造 Prompt 调用 LLM 生成行程"""
