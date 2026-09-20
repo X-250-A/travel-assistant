@@ -15,10 +15,14 @@ class PromptBuilder:
         )
         critic_prompt_path = Path(__file__).parent / "prompts" / "critic-prompt.txt"
         memory_extract_prompt_path = Path(__file__).parent / "prompts" / "memory-extract-prompt.txt"
+        query_rewrite_prompt_path = Path(__file__).parent / "prompts" / "query-rewrite-prompt.txt"
+        pref_extract_prompt_path = Path(__file__).parent / "prompts" / "pref-extract-prompt.txt"
         self.system_prompt = system_prompt_path.read_text("utf-8")
         self.intent_classifier_prompt = intent_classifier_prompt_path.read_text("utf-8")
         self.critic_prompt = critic_prompt_path.read_text("utf-8")
         self.memory_extract_prompt = memory_extract_prompt_path.read_text("utf-8")
+        self.query_rewrite_prompt = query_rewrite_prompt_path.read_text("utf-8")
+        self.pref_extract_prompt = pref_extract_prompt_path.read_text("utf-8")
 
     def render_preferences(self, pref: dict[str, str] | None) -> str:
         lines = []
@@ -51,6 +55,15 @@ class PromptBuilder:
         # 用 replace 而非 format：prompt 里的 JSON 示例含 {should_save}/{facts}，
         # .format() 会把这些字面花括号当占位符，抛 KeyError: 'should_save'
         return self.memory_extract_prompt.replace("{user_input}", user_input)
+
+    def build_query_rewrite_prompt(self, user_input: str, history_text: str) -> str:
+        # 同上：replace 而非 format，避免 JSON 示例里的花括号被当占位符
+        return self.query_rewrite_prompt.replace("{user_input}", user_input).replace(
+            "{history}", history_text
+        )
+
+    def build_pref_extract_prompt(self, user_input: str) -> str:
+        return self.pref_extract_prompt.replace("{user_input}", user_input)
 
     def build_messages(
         self,

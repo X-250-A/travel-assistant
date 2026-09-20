@@ -17,6 +17,7 @@ from backend.app.agent.intent_classifier import IntentClassifier
 from backend.app.crud import find_trip_by_id, update_trip
 from backend.app.logging_config import logger
 from backend.app.memory import (
+    Preferences,
     extract_preferences,
     load_preferences,
     recall_vector_memory,
@@ -44,7 +45,26 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
 
         # 0.记忆召回
         if self.embedding_client.available():
-            query_vector = (await self.embedding_client.embed([user_input]))[0]
+            try:
+                history_text = "\n".join(
+                    f"{m['role']}: {m['content']}" for m in conversation.history_cache[-6:]
+                )
+                prompt = self.prompt_builder.build_query_rewrite_prompt(user_input, history_text)
+                response = await self.llm_client.client.chat.completions.create(
+                    model=settings.DEEPSEEK_MODEL,
+                    messages=[{"role": "system", "content": prompt}],
+                    stream=False,
+                    temperature=0,
+                    response_format={"type": "json_object"},
+                    timeout=settings.LLM_REQUEST_TIMEOUT,
+                )
+                result = json.loads(response.choices[0].message.content)
+                query_text = result["rewritten_query"] if result["need_rewrite"] else user_input
+            except Exception as e:
+                logger.warning("query 改写失败，回退原句：%s", e)
+                query_text = user_input
+
+            query_vector = (await self.embedding_client.embed([query_text]))[0]
             memories = await recall_vector_memory(
                 r,
                 conversation.user_id,
@@ -66,6 +86,10 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
         if intent == "new_trip":
             stream = self._generate_plan(conversation)
         elif intent == "modify_trip":
+            # 将历史上下文注入缓存
+            await conversation.get_context(
+                max_tokens=30000, token_counter=self.llm_client.count_tokens
+            )
             # 找到对应行程才能修改
             trip = await find_trip_by_id(conversation.db, conversation.trip_id)
             if trip is None:
@@ -158,9 +182,27 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
 
         # 6. 保存 AI 回复（自然语言部分，不含 JSON 代码块）
         await conversation.add_message("assistant", display_text)
-        new_pref = extract_preferences(user_input)
-        if new_pref:
-            await save_preferences(r, conversation.user_id, new_pref)
+
+        # 6.5. 保存pref
+        try:
+            prompt = self.prompt_builder.build_pref_extract_prompt(user_input)
+            response = await self.llm_client.client.chat.completions.create(
+                messages=[{"role": "system", "content": prompt}],
+                stream=False,
+                temperature=0,
+                response_format={"type": "json_object"},
+                model=settings.DEEPSEEK_MODEL,
+            )
+            data = json.loads(response.choices[0].message.content)
+            if data["should_save"]:
+                prefs = [Preferences(type=p["type"], value=p["value"]) for p in data["prefs"]]
+                await save_preferences(r, conversation.user_id, prefs)
+
+        except Exception as e:
+            logger.warning("LLM提取失败：%s", e)
+            new_pref = extract_preferences(user_input)
+            if new_pref:
+                await save_preferences(r, conversation.user_id, new_pref)
 
         # 7. 结束 — 把 trip_id 带回前端，让前端知道"刚聊的是哪个行程"
         yield {"type": "done", "data": {"trip_id": conversation.trip_id}}

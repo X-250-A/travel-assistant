@@ -210,6 +210,15 @@ def _collect_events(agent, user_input, conv, prefs=None):
     return events
 
 
+def _critic_calls(create_mock):
+    """从 chat.completions.create 的调用记录里，过滤出「审查」那通电话。
+
+    planner 里 critic（4.5）与 pref 提取（6.5）共用同一个 create，
+    断言必须按 prompt 指纹（system 内容含"审查"）区分，不能按总次数/最后一次。
+    """
+    return [c for c in create_mock.call_args_list if "审查" in c.kwargs["messages"][0]["content"]]
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 审查通过 → 落库原方案（不重生成）
 # ═══════════════════════════════════════════════════════════════════════════
@@ -404,7 +413,8 @@ class TestCriticGuard:
         ):
             events = _collect_events(agent, "想去成都玩三天", conv)
 
-        create_mock.assert_not_called()
+        # 审查 create 一次都不该发生（pref 提取的调用不算，只数「审查」那通）
+        assert len(_critic_calls(create_mock)) == 0
         thinkings = [e for e in events if e["type"] == "thinking"]
         assert not any("质量审查" in t["content"] for t in thinkings)
         assert events[-1]["type"] == "done"
@@ -420,9 +430,9 @@ class TestCriticGuard:
         with patch("backend.app.agent.planner.update_trip", new_callable=AsyncMock) as mock_update:
             events = _collect_events(agent, "想去成都玩三天", conv)
 
-        # 无 JSON → plan_data=None → 不审查、不落库
+        # 无 JSON → plan_data=None → 不审查、不落库（pref 提取的调用不算）
         mock_update.assert_not_called()
-        agent.llm_client.client.chat.completions.create.assert_not_called()
+        assert len(_critic_calls(agent.llm_client.client.chat.completions.create)) == 0
         assert events[-1]["type"] == "done"
 
 
@@ -455,8 +465,8 @@ class TestCriticModify:
         ):
             events = _collect_events(agent, "把行程改成四天", conv)
 
-        # 审查被调用（modify 也走审查）
-        agent.llm_client.client.chat.completions.create.assert_called_once()
+        # 审查被调用（modify 也走审查）——只数「审查」那通，pref 提取不算
+        assert len(_critic_calls(agent.llm_client.client.chat.completions.create)) == 1
         # 落库修改后方案
         mock_update.assert_called_once()
         saved_plan = mock_update.call_args.kwargs["plan_data"]
@@ -487,8 +497,9 @@ class TestAskCriticMessages:
         )
 
         create_mock = agent.llm_client.client.chat.completions.create
-        call_args = create_mock.call_args
-        messages = call_args.kwargs["messages"]
+        critic_calls = _critic_calls(create_mock)
+        assert len(critic_calls) == 1  # 恰好一通审查电话
+        messages = critic_calls[0].kwargs["messages"]
 
         # system = critic 人设（含"审查"关键词）
         assert messages[0]["role"] == "system"
@@ -501,5 +512,5 @@ class TestAskCriticMessages:
         assert "宽窄巷子" in user_content  # 行程 JSON 被注入
 
         # 调用参数正确
-        assert call_args.kwargs["temperature"] == 0
-        assert call_args.kwargs["response_format"] == {"type": "json_object"}
+        assert critic_calls[0].kwargs["temperature"] == 0
+        assert critic_calls[0].kwargs["response_format"] == {"type": "json_object"}
