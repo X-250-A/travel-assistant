@@ -305,7 +305,7 @@ class TestLLMClassifyIntent:
         agent = TripPlannerAgent()
         conv = _make_conversation_manager()
         conv.trip_id = 5
-        conv.state = ConversationState.PLANNING
+        conv.state = ConversationState.CONFIRMING
 
         create_mock = AsyncMock(return_value=_mock_classify_response("modify_trip"))
         agent.llm_client.client.chat.completions.create = create_mock

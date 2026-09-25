@@ -20,7 +20,10 @@ class IntentClassifier:
             context_hint = (
                 f"当前对话有一个已存在的行程（ID={conversation.trip_id}），"
                 f"状态为 {conversation.state.value}。"
-                f"如果用户提到修改、调整、更换等，应归类为 modify_trip。"
+                f"请你根据当前会话状态以及以下对应状态决策参考，进行对应决策\n"
+                f"IDLE（无方案）: 当前没有已生成方案，用户不可能确认方案，confirm 意图无效\n"
+                f"CONFIRMING（有方案未确认）: 用户说可以/行/就这么定，应归为 confirm；说修改才归 modify_trip\n"
+                f"DONE（已确认）: 行程已确认，若用户提修改，修改后需重新确认\n"
             )
 
         # 将上下文历史加入 messages
@@ -39,7 +42,7 @@ class IntentClassifier:
             )
             result = json.loads(resp.choices[0].message.content)
             intent = result.get("intent", "unclear")
-            if intent not in ("new_trip", "modify_trip", "ask_question", "unclear"):
+            if intent not in ("new_trip", "modify_trip", "ask_question", "unclear", "confirm"):
                 intent = "unclear"
             return intent
         except Exception as e:

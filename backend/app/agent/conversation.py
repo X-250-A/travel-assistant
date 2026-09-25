@@ -13,8 +13,7 @@ from backend.app.crud import create_trip, get_all_trip_messages, save_message
 
 
 class ConversationState(StrEnum):
-    IDLE = "idle"
-    PLANNING = "planning"
+    IDLE = "idle"  # 空闲状态
     CONFIRMING = "confirming"
     DONE = "done"
 
@@ -65,6 +64,14 @@ class ConversationManager:
         self.old_messages = all_history[: len(all_history) - len(result)]
         return result
 
+    def sync_state(self, trip):
+        if trip is None or trip.plan_data is None:
+            self.state = ConversationState.IDLE
+        elif trip.status == "confirmed":
+            self.state = ConversationState.DONE
+        else:
+            self.state = ConversationState.CONFIRMING
+
     def get_state(self) -> str:
-        """返回当前会话状态（idle / planning / confirming / done）"""
+        """返回当前会话状态（idle /  confirming / done）"""
         return self.state.value

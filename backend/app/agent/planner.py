@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from redis.asyncio import Redis
 
 from backend.app import settings
-from backend.app.agent import ConversationManager
+from backend.app.agent import ConversationManager, ConversationState
 from backend.app.agent.critic import CriticReviewer
 from backend.app.agent.extract_json import PlanJSONExtractor
 from backend.app.agent.intent_classifier import IntentClassifier
@@ -43,6 +43,7 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
     async def handle_message(self, user_input: str, conversation: ConversationManager, r: Redis):
         """Agent 主入口：接收用户消息，返回 Agent 回复（流式）"""
         trip = await find_trip_by_id(conversation.db, conversation.trip_id)
+        conversation.sync_state(trip)
         conversation.summary = trip.summary if trip else None
         conversation.pref = await load_preferences(r, conversation.user_id)
 
@@ -106,6 +107,17 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
                 stream = self._generate_plan(conversation)
             else:
                 stream = self._apply_feedback(user_input, trip.plan_data, conversation)
+        elif intent == "confirm":
+            if trip is None or trip.plan_data is None:
+                yield {"type": "token", "content": "还没有行程方案可以确认，我先帮你规划一个吧！"}
+                yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
+                return
+            await update_trip(conversation.db, conversation.trip_id, status="confirmed")
+            conversation.state = ConversationState.DONE
+            yield {"type": "token", "content": "好的，行程已确认！"}
+            yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
+            return
+
         elif intent == "ask_question":
             async for chunk in self.gossip(conversation):
                 yield chunk
@@ -181,8 +193,9 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
         # 5. 保存解析出的行程数据
         if plan_data is not None:
             try:
-                await update_trip(conversation.db, conversation.trip_id, plan_data=plan_data)
-
+                await update_trip(
+                    conversation.db, conversation.trip_id, plan_data=plan_data, status="draft"
+                )
             except Exception as e:
                 logger.error("保存行程失败：%s", e)
 
