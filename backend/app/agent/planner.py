@@ -5,7 +5,6 @@ TripPlannerAgent: 行程规划 Agent 核心
 """
 
 import json
-from json import JSONDecodeError
 
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -15,6 +14,7 @@ from backend.app.agent import ConversationManager, ConversationState
 from backend.app.agent.critic import CriticReviewer
 from backend.app.agent.extract_json import PlanJSONExtractor
 from backend.app.agent.intent_classifier import IntentClassifier
+from backend.app.agent.tool_loop import run_tool_loop
 from backend.app.crud import find_trip_by_id, update_trip
 from backend.app.logging_config import logger
 from backend.app.memory import (
@@ -27,9 +27,7 @@ from backend.app.memory import (
 )
 from backend.app.schemas.plan import PlanData
 from backend.app.services import EmbeddingClient, LLMClient, PromptBuilder
-from backend.app.tools import execute_tool, get_tool_schema
-
-MAX_TOOL_ROUND = 10
+from backend.app.tools import get_tool_schema
 
 
 class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
@@ -302,98 +300,11 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
         if tool_defs is None:
             tool_defs = get_tool_schema()
 
-        thoughts: list[str] = []
-
-        # 非流式调用LLM
-        message = await self.llm_client.chat(messages, tool_defs)
-        if not message.tool_calls:
-            # 没有工具调用的需求，则yield流式输出
-            async for chunk in self.llm_client.chat_stream(messages):
-                yield {"type": "token", "content": chunk}
-            return
-
-        parse_fail_count = {}
-        tool_round = 0
-
-        while tool_round < MAX_TOOL_ROUND:
-            tool_round += 1
-
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content,  # 可能为 None
-                    "tool_calls": message.tool_calls,  # tool_calls 列表
-                }
-            )
-
-            tool_names = ", ".join(tool_call.function.name for tool_call in message.tool_calls)
-
-            yield {"type": "thinking", "content": f"我现在要使用 {tool_names} 工具以确认安排"}
-
-            observations = []
-
-            for tool_call in message.tool_calls:
-                fn_name = tool_call.function.name
-                try:
-                    fn_args = json.loads(tool_call.function.arguments)
-                except (JSONDecodeError, TypeError) as e:
-                    parse_fail_count[fn_name] = parse_fail_count.get(fn_name, 0) + 1
-                    logger.warning(
-                        "参数解析失败：tool=%s，err=%s, args=%.200s",
-                        fn_name,
-                        e,
-                        tool_call.function.arguments,
-                    )
-                    if parse_fail_count[fn_name] >= 2:
-                        msg = "参数解析连续失败已达 2 次上限，本工具调用已跳过，请勿再次调用该工具"
-                    else:
-                        msg = "参数解析失败，请修正参数后重新调用该工具，或放弃调用"
-                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": msg})
-                    observations.append(f"{fn_name}(解析失败) → {msg}")
-                    continue
-
-                result = await execute_tool(fn_name, **fn_args)
-
-                observations.append(f"{fn_name}({fn_args}) → {result}")
-
-                messages.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": tool_call.id,
-                        "content": result,
-                    }
-                )
-
-            # 在 observations 循环结束、调用下一轮 LLM 之前
-            summary = "; ".join(obs[:120] for obs in observations)
-            thoughts.append(f"第{tool_round}轮：调用了 {tool_names}，结果：{summary[:150]}")
-
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": (
-                        "[内部推理] 我目前已掌握的信息：\n"
-                        + "\n".join(f"- {t}" for t in thoughts[-3:])
-                        + "\n\n请基于以上信息评估：是否已满足用户需求？"
-                        "若已满足，直接组织最终行程回答，不要调用工具；"
-                        "若关键信息仍有缺失，再调用工具补充。"
-                    ),
-                }
-            )
-
-            message = await self.llm_client.chat(messages, tool_defs)
-
-            if not message.tool_calls:
-                async for chunk in self.llm_client.chat_stream(messages):
-                    yield {"type": "token", "content": chunk}
-                return
-
-        # 调用上限后的兜底处理
-        # ← 走到这里说明 10 轮工具调用后 LLM 还在要工具
-        logger.warning("工具调用超过 %s 轮，强制结束", MAX_TOOL_ROUND)
-        # 兜底：把当前上下文流式输出
-        async for chunk in self.llm_client.chat_stream(messages):
-            yield {"type": "token", "content": chunk}
+        # 工具调用主循环（首次 chat → 无工具则流式 / 有工具则循环）整体在独立模块里
+        async for event in run_tool_loop(
+            self.llm_client, messages, tool_defs, settings.MAX_TOOL_ROUND
+        ):
+            yield event
 
     async def _regenerate_plan(self, plan_data: dict, user_input: str, issues: list, conversation):
         """根据审查反馈重生成一版行程方案（轻量单轮流式，服务端累积，不 yield 给前端）。

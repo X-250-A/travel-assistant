@@ -89,6 +89,9 @@ class Settings(BaseSettings):
     CRITIC_ENABLED: bool = True  # 总开关：对新建/修改的行程方案做第二轮质量审查
     CRITIC_MAX_REGENERATE: int = 1  # 审查不达标时的最大重生成次数（防无限循环）
 
+    # 工具调用循环
+    MAX_TOOL_ROUND: int = 10  # 单次生成中工具调用的最大轮数（防无限循环烧 token）
+
     # SiliconFlow（向量记忆 embedding，可降级：无 key 时不启用）
     SILICONFLOW_API_KEY: str = f"{PLACEHOLDER_MARKER}-to-a-siliconflow-api-key"
     SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
