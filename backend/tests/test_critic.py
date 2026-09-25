@@ -184,10 +184,17 @@ def _make_mock_redis(prefs=None):
 def _make_conversation_manager():
     mgr = ConversationManager.__new__(ConversationManager)
     mgr.db = MagicMock()
+    # summary 功能在 handle_message 顶部查 trip：mock execute 返回"无该行程"，
+    # 让真实 find_trip_by_id → scalar_one_or_none() → None，handle_message 用 if trip else None 兜住
+    mgr.db.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+    )
     mgr.trip_id = 1
     mgr.user_id = 1
     mgr.state = ConversationState.IDLE
     mgr.history_cache = []
+    mgr.old_messages = []  # summary 功能读取（update_summary 入口判断）
+    mgr.summary = None  # summary 落库后回填，build_messages 消费
     mgr.pref = {}
     mgr.memories = []
     mgr.add_message = AsyncMock()

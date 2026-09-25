@@ -45,10 +45,17 @@ def _make_conversation_manager():
     """最小化 ConversationManager，绕过数据库"""
     mgr = ConversationManager.__new__(ConversationManager)
     mgr.db = MagicMock()
+    # summary 功能在 handle_message 顶部查 trip：mock execute 返回"无该行程"，
+    # 让真实 find_trip_by_id → scalar_one_or_none() → None，handle_message 用 if trip else None 兜住
+    mgr.db.execute = AsyncMock(
+        return_value=MagicMock(scalar_one_or_none=MagicMock(return_value=None))
+    )
     mgr.trip_id = 1
     mgr.user_id = 1
     mgr.state = ConversationState.IDLE
     mgr.history_cache = []
+    mgr.old_messages = []  # ConversationSummary 功能读取（update_summary 依赖判断）
+    mgr.summary = None
     mgr.pref = {}
     mgr.memories = []
     mgr.add_message = AsyncMock()
