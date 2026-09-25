@@ -17,17 +17,20 @@ class PromptBuilder:
         memory_extract_prompt_path = Path(__file__).parent / "prompts" / "memory-extract-prompt.txt"
         query_rewrite_prompt_path = Path(__file__).parent / "prompts" / "query-rewrite-prompt.txt"
         pref_extract_prompt_path = Path(__file__).parent / "prompts" / "pref-extract-prompt.txt"
+        summary_prompt_path = Path(__file__).parent / "prompts" / "summary-prompt.txt"
+
         self.system_prompt = system_prompt_path.read_text("utf-8")
         self.intent_classifier_prompt = intent_classifier_prompt_path.read_text("utf-8")
         self.critic_prompt = critic_prompt_path.read_text("utf-8")
         self.memory_extract_prompt = memory_extract_prompt_path.read_text("utf-8")
         self.query_rewrite_prompt = query_rewrite_prompt_path.read_text("utf-8")
         self.pref_extract_prompt = pref_extract_prompt_path.read_text("utf-8")
+        self.summary_prompt = summary_prompt_path.read_text("utf-8")
 
     def render_preferences(self, pref: dict[str, str] | None) -> str:
-        lines = []
         if not pref:
             return ""
+        lines = []
         for key, value in pref.items():
             item = value.split(",")
             lines.append(f"- {key}: {'、'.join(item)}")
@@ -38,6 +41,11 @@ class PromptBuilder:
             return ""
         line = [f" - {m}" for m in memories]
         return "【历史相关记忆（跨会话，参考但可覆盖）】\n" + "\n".join(line)
+
+    def render_summary_prompt(self, summary: str) -> str:
+        if not summary:
+            return ""
+        return "【对话脉络摘要】\n" + summary
 
     def build_system_prompt(self) -> str:
         """返回 System Prompt（静态模板）"""
@@ -65,6 +73,11 @@ class PromptBuilder:
     def build_pref_extract_prompt(self, user_input: str) -> str:
         return self.pref_extract_prompt.replace("{user_input}", user_input)
 
+    def build_summary_prompt(self, old_summary: str, evicted_messages: str) -> str:
+        return self.summary_prompt.replace("{old_summary}", old_summary or "").replace(
+            "{evicted_messages}", evicted_messages
+        )
+
     def build_messages(
         self,
         history: list[dict],
@@ -72,6 +85,7 @@ class PromptBuilder:
         pref: dict[str, str] | None = None,
         extra_system: str | None = None,
         memories: list[str] | None = None,
+        summary: str | None = None,
     ) -> list[dict]:
         """拼接 messages 数组"""
         preferences = self.render_preferences(pref)
@@ -83,4 +97,7 @@ class PromptBuilder:
             system_msgs.append({"role": "system", "content": preferences})
         if vector_memory:
             system_msgs.append({"role": "system", "content": vector_memory})
+        if summary:
+            processed_summary = self.render_summary_prompt(summary)
+            system_msgs.append({"role": "system", "content": processed_summary})
         return [*system_msgs, *history, {"role": "user", "content": user_input}]

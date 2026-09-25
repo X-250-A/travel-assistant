@@ -53,6 +53,7 @@ async def update_trip(
     title: str | None = None,
     status: str | None = None,
     plan_data: dict | None = None,
+    summary: str | None = None,
 ):
     """更新行程字段，只更新传入的非 None 字段"""
     trip = await find_trip_by_id(db, trip_id)
@@ -64,6 +65,8 @@ async def update_trip(
         trip.status = status
     if plan_data is not None:
         trip.plan_data = plan_data
+    if summary is not None:
+        trip.summary = summary
 
     await db.flush()
     await db.refresh(trip)

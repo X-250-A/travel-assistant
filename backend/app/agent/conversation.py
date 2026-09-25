@@ -30,6 +30,8 @@ class ConversationManager:
         self.history_cache: list[dict] = []  # 历史对话的缓存
         self.pref: dict[str, str] | None = None
         self.memories: list[str] = []
+        self.old_messages: list[dict] = []
+        self.summary: str | None = None
 
     async def create_conversation(self, title: str):
         """创建新会话，关联到某个 Trip"""
@@ -60,6 +62,7 @@ class ConversationManager:
             result.insert(0, msg)
             current_token += message_tokens
         self.history_cache = result
+        self.old_messages = all_history[: len(all_history) - len(result)]
         return result
 
     def get_state(self) -> str:

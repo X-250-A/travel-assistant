@@ -42,6 +42,8 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
 
     async def handle_message(self, user_input: str, conversation: ConversationManager, r: Redis):
         """Agent 主入口：接收用户消息，返回 Agent 回复（流式）"""
+        trip = await find_trip_by_id(conversation.db, conversation.trip_id)
+        conversation.summary = trip.summary if trip else None
         conversation.pref = await load_preferences(r, conversation.user_id)
 
         # 0.记忆召回
@@ -50,10 +52,12 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
                 history_text = "\n".join(
                     f"{m['role']}: {m['content']}" for m in conversation.history_cache[-6:]
                 )
-                prompt = self.prompt_builder.build_query_rewrite_prompt(user_input, history_text)
+                query_prompt = self.prompt_builder.build_query_rewrite_prompt(
+                    user_input, history_text
+                )
                 response = await self.llm_client.client.chat.completions.create(
                     model=settings.DEEPSEEK_MODEL,
-                    messages=[{"role": "system", "content": prompt}],
+                    messages=[{"role": "system", "content": query_prompt}],
                     stream=False,
                     temperature=0,
                     response_format={"type": "json_object"},
@@ -89,7 +93,8 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
         elif intent == "modify_trip":
             # 将历史上下文注入缓存
             await conversation.get_context(
-                max_tokens=30000, token_counter=self.llm_client.count_tokens
+                max_tokens=settings.CONTEXT_WINDOW_MAX_TOKENS,
+                token_counter=self.llm_client.count_tokens,
             )
             # 找到对应行程才能修改
             trip = await find_trip_by_id(conversation.db, conversation.trip_id)
@@ -229,10 +234,34 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
         except Exception as e:
             logger.warning("向量记忆保存失败，跳过：%s", e)
 
+    async def update_summary(self, conversation):
+        if not conversation.old_messages:
+            return
+        evicted_messages = "\n".join(
+            [f"{m['role']}: {m['content']}" for m in conversation.old_messages]
+        )
+        trip = await find_trip_by_id(db=conversation.db, trip_id=conversation.trip_id)
+        try:
+            old_summary = trip.summary if trip.summary else ""
+            prompt = self.prompt_builder.build_summary_prompt(old_summary, evicted_messages)
+            response = await self.llm_client.client.chat.completions.create(
+                messages=[{"role": "system", "content": prompt}],
+                stream=False,
+                model=settings.DEEPSEEK_MODEL,
+                temperature=0,
+            )
+            msg = response.choices[0].message.content
+            new_summary = msg.strip()
+            await update_trip(db=conversation.db, trip_id=conversation.trip_id, summary=new_summary)
+            conversation.summary = new_summary
+        except Exception as e:
+            logger.warning("摘要失败，跳过：%s", e)
+
     async def _generate_plan(self, conversation, tool_defs=None):
         """构造 Prompt 调用 LLM 生成行程"""
         context = await conversation.get_context(
-            max_tokens=30000, token_counter=self.llm_client.count_tokens
+            max_tokens=settings.CONTEXT_WINDOW_MAX_TOKENS,
+            token_counter=self.llm_client.count_tokens,
         )
 
         if not context:
@@ -241,6 +270,8 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
                 "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？",
             }
             return
+
+        await self.update_summary(conversation)
 
         # context 按时间升序排列，最后一条是当前用户消息
         # 拆开：前面的当历史上下文，最后一条单独当 user_input，避免重复
@@ -252,6 +283,7 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
             user_input=user_input,
             pref=conversation.pref,
             memories=conversation.memories,
+            summary=conversation.summary,
         )
 
         if tool_defs is None:
@@ -390,6 +422,7 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
             user_input=user_input,
             pref=conversation.pref,
             extra_system=regenerate_prompt,
+            summary=conversation.summary,
         )
 
         # 4. 服务端累积流式输出，返回完整文本（不 yield 给前端，理由见 handle_message）
@@ -400,6 +433,7 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
 
     async def _apply_feedback(self, feedback: str, current_plan: dict, conversation):
         """根据用户反馈调整现有行程"""
+        await self.update_summary(conversation)
         modify_prompt = f"""以下是当前行程的完整 JSON：
         {json.dumps(current_plan, ensure_ascii=False, indent=2)}
 
@@ -414,6 +448,7 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
             user_input=feedback,
             pref=conversation.pref,
             extra_system=modify_prompt,
+            summary=conversation.summary,
         )
 
         async for chunk in self.llm_client.chat_stream(messages):
@@ -421,7 +456,8 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
 
     async def gossip(self, conversation):
         context = await conversation.get_context(
-            max_tokens=30000, token_counter=self.llm_client.count_tokens
+            max_tokens=settings.CONTEXT_WINDOW_MAX_TOKENS,
+            token_counter=self.llm_client.count_tokens,
         )
 
         if not context:
@@ -430,6 +466,8 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
                 "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？",
             }
             return
+
+        await self.update_summary(conversation)
 
         # context 按时间升序排列，最后一条是当前用户消息
         # 拆开：前面的当历史上下文，最后一条单独当 user_input，避免重复
@@ -441,6 +479,7 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
             user_input=user_input,
             pref=conversation.pref,
             memories=conversation.memories,
+            summary=conversation.summary,
         )
 
         full_text = ""

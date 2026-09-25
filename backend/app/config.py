@@ -3,7 +3,6 @@ from pathlib import Path
 from pydantic import model_validator
 from pydantic_settings import BaseSettings
 
-
 # 创建能从 .env 文件读取环境变量的类，方便 JWT / LLM 的 API_KEY 等存放
 
 # ── 必须真实配置的关键字段 ──
@@ -55,6 +54,11 @@ class Settings(BaseSettings):
 
     # LLM 提供方：deepseek（真实调用）/ mock（E2E 测试专用，返回预设响应）
     LLM_PROVIDER: str = "deepseek"
+
+    # 上下文管理
+    # 对话历史窗口预算（token）：get_context 按最新优先裁到该上限，
+    # 被挤出的旧消息由 update_summary 滚动压缩进摘要（summary-prompt.txt 强制收敛）
+    CONTEXT_WINDOW_MAX_TOKENS: int = 30000
 
     # weather_tool
     WEATHER_API_KEY: str = f"{PLACEHOLDER_MARKER}-to-a-weather-api-key"
