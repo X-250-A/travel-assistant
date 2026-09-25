@@ -5,6 +5,7 @@ TripPlannerAgent: 行程规划 Agent 核心
 """
 
 import json
+from json import JSONDecodeError
 
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -265,7 +266,10 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
             async for chunk in self.llm_client.chat_stream(messages):
                 yield {"type": "token", "content": chunk}
             return
+
+        parse_fail_count = {}
         tool_round = 0
+
         while tool_round < MAX_TOOL_ROUND:
             tool_round += 1
 
@@ -285,7 +289,24 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
 
             for tool_call in message.tool_calls:
                 fn_name = tool_call.function.name
-                fn_args = json.loads(tool_call.function.arguments)
+                try:
+                    fn_args = json.loads(tool_call.function.arguments)
+                except (JSONDecodeError, TypeError) as e:
+                    parse_fail_count[fn_name] = parse_fail_count.get(fn_name, 0) + 1
+                    logger.warning(
+                        "参数解析失败：tool=%s，err=%s, args=%.200s",
+                        fn_name,
+                        e,
+                        tool_call.function.arguments,
+                    )
+                    if parse_fail_count[fn_name] >= 2:
+                        msg = "参数解析连续失败已达 2 次上限，本工具调用已跳过，请勿再次调用该工具"
+                    else:
+                        msg = "参数解析失败，请修正参数后重新调用该工具，或放弃调用"
+                    messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": msg})
+                    observations.append(f"{fn_name}(解析失败) → {msg}")
+                    continue
+
                 result = await execute_tool(fn_name, **fn_args)
 
                 observations.append(f"{fn_name}({fn_args}) → {result}")
