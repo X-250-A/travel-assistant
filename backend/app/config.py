@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     # Critic 行程质量审查（v0.8.0）
     CRITIC_ENABLED: bool = True  # 总开关：对新建/修改的行程方案做第二轮质量审查
     CRITIC_MAX_REGENERATE: int = 1  # 审查不达标时的最大重生成次数（防无限循环）
+    CRITIC_SCORE_THRESHOLD: int = 60  # 质量审查达标线
 
     # 工具调用循环
     MAX_TOOL_ROUND: int = 10  # 单次生成中工具调用的最大轮数（防无限循环烧 token）

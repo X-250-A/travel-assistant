@@ -11,7 +11,7 @@ from redis.asyncio import Redis
 
 from backend.app import settings
 from backend.app.agent import ConversationManager, ConversationState
-from backend.app.agent.critic import CriticReviewer
+from backend.app.agent.critic import run_critic_loop
 from backend.app.agent.extract_json import PlanJSONExtractor
 from backend.app.agent.intent_classifier import IntentClassifier
 from backend.app.agent.tool_loop import run_tool_loop
@@ -30,7 +30,7 @@ from backend.app.services import EmbeddingClient, LLMClient, PromptBuilder
 from backend.app.tools import get_tool_schema
 
 
-class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
+class TripPlannerAgent(PlanJSONExtractor, IntentClassifier):
     """行程规划 Agent 核心"""
 
     def __init__(self):
@@ -158,41 +158,24 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
                 logger.warning("行程 JSON 校验未通过，降级为无方案：%s", e.errors()[:3])
                 plan_data = None
 
-        # 4.5 Critic 质量审查（v0.8.0）—— 判定树
+        # 4.5 Critic 质量审查（v0.8.0）—— 判定树已搬入 critic.run_critic_loop
         # 审查条件（两个都要满足）：
         #   1. settings.CRITIC_ENABLED —— 总开关开启（测试环境用 env 关掉，避免真打 DeepSeek）
         #   2. plan_data is not None   —— 有方案才审（没解析出合法 JSON 则无可审对象）
         if plan_data is not None and settings.CRITIC_ENABLED:
-            yield {"type": "thinking", "content": "正在对行程方案做质量审查…"}
-            critic_result = await self._ask_critic(
-                user_input=user_input, conversation=conversation, plan_data_json=plan_data
+            critic_events: list = []
+            display_text, plan_data = await run_critic_loop(
+                self.llm_client,
+                self.prompt_builder,
+                conversation,
+                user_input,
+                display_text,
+                plan_data,
+                settings.CRITIC_MAX_REGENERATE,
+                critic_events,
             )
-
-            # 进入重生成的条件（缺一不可）：
-            #   1. critic_result 非空 —— 审查成功（失败降级返回 None，直接用原方案，不阻断主流程）
-            #   2. not passed —— 审查不达标
-            #   3. issues 非空 —— 审查员给出了可执行的修正项（只有明确了问题才值得再花一次生成）
-            if critic_result and not critic_result["passed"] and critic_result["issues"]:
-                yield {"type": "thinking", "content": "审查发现部分安排需要优化，正在重新生成方案"}
-                # 重生成循环：最多 CRITIC_MAX_REGENERATE 次（默认 1 次），防无限循环烧 token。
-                # 每次产出合法 JSON 即采纳；全失败则保持 v1 原方案，流程继续。
-                for _ in range(settings.CRITIC_MAX_REGENERATE):
-                    new_text = await self._regenerate_plan(
-                        plan_data=plan_data,
-                        user_input=user_input,
-                        issues=critic_result["issues"],
-                        conversation=conversation,
-                    )
-                    new_display, new_plan = self._extract_plan_json(new_text)
-                    # 重生成产物同样过校验层，不合格不采纳（保持 v1 原方案）
-                    if new_plan is not None:
-                        try:
-                            new_plan = PlanData.model_validate(new_plan).model_dump()
-                        except ValidationError:
-                            new_plan = None
-                    if new_plan is not None:
-                        display_text, plan_data = new_display, new_plan
-                        break
+            for ev in critic_events:
+                yield ev
 
         # 5. 保存解析出的行程数据
         if plan_data is not None:
@@ -311,55 +294,6 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
             self.llm_client, messages, tool_defs, settings.MAX_TOOL_ROUND
         ):
             yield event
-
-    async def _regenerate_plan(self, plan_data: dict, user_input: str, issues: list, conversation):
-        """根据审查反馈重生成一版行程方案（轻量单轮流式，服务端累积，不 yield 给前端）。
-
-        输入：
-            plan_data   : v1 的行程 JSON dict（审查不达标的那版）
-            user_input  : 用户原始需求（重生成时带回去，避免丢初始约束）
-            issues      : 审查员给出的修正项列表（如 ["预算超支", "第2天太赶"]）
-            conversation: 会话管理器（取 history_cache / pref 拼 prompt）
-
-        返回：
-            str —— 重生成的完整文本（含自然语言 + ```json 代码块，调用方再 _extract_plan_json 解析）
-
-        设计要点（对齐 _apply_feedback 范式）：
-            - 把「v1 行程 JSON + 用户需求 + 逐条 issues」拼进 extra_system
-            - 复用 build_messages 拼 messages：带 user_input（初始约束）+ pref（偏好）+ extra_system（修正指令）
-            - 走 chat_stream 流式，但只在服务端累积返回，不 yield —— 见 handle_message 说明
-        """
-        # 1. 把审查反馈（issues 列表）逐条转成 "- 问题" 行，用换行拼接。
-        #    f"- {issue}" 逐条加前缀；issues 非空由调用方判定树保证，这里无需判空
-        issue_lines = "\n".join(f"- {issue}" for issue in issues)
-
-        # 2. 拼接修正指令：v1 JSON + 用户需求 + 审查问题 + 输出规范（照抄 _apply_feedback 的写法）
-        regenerate_prompt = f"""以下是刚生成的行程 JSON：
-        {json.dumps(plan_data, ensure_ascii=False, indent=2)}
-
-        用户原始需求：{user_input}
-
-        质量审查发现以下问题，请逐条修正：
-        {issue_lines}
-
-        请保持用户原始需求与行程主体不变，只在问题范围内做局部调整。
-        先用自然语言简要说明你做了哪些优化，然后在回复末尾用 ```json 代码块返回修正后的完整行程 JSON，字段结构与原 JSON 保持一致，不要省略任何字段。"""
-
-        # 3. 复用 build_messages 拼 messages：
-        #    user_input 当 user 消息（初始约束不丢）+ pref 偏好段 + extra_system 修正指令
-        messages = self.prompt_builder.build_messages(
-            history=conversation.history_cache,
-            user_input=user_input,
-            pref=conversation.pref,
-            extra_system=regenerate_prompt,
-            summary=conversation.summary,
-        )
-
-        # 4. 服务端累积流式输出，返回完整文本（不 yield 给前端，理由见 handle_message）
-        full_text = ""
-        async for chunk in self.llm_client.chat_stream(messages):
-            full_text += chunk
-        return full_text
 
     async def _apply_feedback(self, feedback: str, current_plan: dict, conversation):
         """根据用户反馈调整现有行程"""

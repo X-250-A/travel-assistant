@@ -444,6 +444,65 @@ class TestCriticGuard:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 分数硬校验：passed=True 但任一维度分低于阈值（prompt 软规则被模型忽略时）
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestCriticScoreDefense:
+    def test_critic_low_score_forces_regenerate(self, critic_on):
+        """审查自相矛盾（passed=True 但某维分数低于阈值）→ 分数硬校验强制按不达标处理，触发重生成"""
+        agent = _make_agent_with_v2(
+            v1_chunks=[FAKE_TRIP_JSON],
+            v2_chunks=[FAKE_TRIP_JSON_V2],
+            critic_response=_mock_critic_response(
+                passed=True,
+                scores={"budget": 55, "preferences": 90, "feasibility": 90},
+            ),
+        )
+        conv = _make_conversation_manager()
+
+        with patch("backend.app.agent.planner.update_trip", new_callable=AsyncMock) as mock_update:
+            events = _collect_events(agent, "想去成都玩三天", conv)
+
+        # 分数硬校验 → passed 强制 False → 触发重生成 → 落库 v2（budget 2500）
+        mock_update.assert_called_once()
+        saved_plan = mock_update.call_args.kwargs["plan_data"]
+        assert saved_plan["budget"] == 2500
+
+        # chat_stream 恰好 2 次：v1 + v2 重生成
+        assert agent.llm_client.chat_stream.call_count == 2
+
+        # 有「重新生成」thinking
+        thinkings = [e for e in events if e["type"] == "thinking"]
+        assert any("重新生成" in t["content"] for t in thinkings)
+        assert events[-1]["type"] == "done"
+
+    def test_critic_missing_scores_keeps_original(self, critic_on):
+        """审查结果缺 scores 字段 → _ask_critic 兜底为 {} → 分数校验跳过，不崩，落库 v1"""
+        mock_message = MagicMock()
+        mock_message.content = json.dumps({"passed": True, "issues": []}, ensure_ascii=False)
+        mock_choice = MagicMock()
+        mock_choice.message = mock_message
+        mock_response = MagicMock()
+        mock_response.choices = [mock_choice]
+
+        agent = _make_agent(
+            stream_chunks=[FAKE_TRIP_JSON],
+            critic_response=mock_response,
+        )
+        conv = _make_conversation_manager()
+
+        with patch("backend.app.agent.planner.update_trip", new_callable=AsyncMock) as mock_update:
+            events = _collect_events(agent, "想去成都玩三天", conv)
+
+        mock_update.assert_called_once()
+        saved_plan = mock_update.call_args.kwargs["plan_data"]
+        assert saved_plan["budget"] == 3000
+        assert agent.llm_client.chat_stream.call_count == 1
+        assert events[-1]["type"] == "done"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # modify_trip 修改方案也走审查
 # ═══════════════════════════════════════════════════════════════════════════
 
