@@ -37,12 +37,14 @@ class ConversationManager:
         # status 必须用 Trip 的合法值 "draft"，不能用会话状态 self.state（idle/planning/...）
         # 二者是不同的枚举体系：Trip.status ∈ {draft, confirmed}，ConversationState ∈ {idle, planning, ...}
         trip = await create_trip(db=self.db, user_id=self.user_id, title=title, status="draft")
+        await self.db.commit()
         self.trip_id = trip.id
         return trip
 
     async def add_message(self, role: str, content: str):
         """追加一条消息到会话历史"""
         message = await save_message(self.db, self.trip_id, role, content)
+        await self.db.commit()
         self.history_cache.append({"role": role, "content": content})
         return message
 

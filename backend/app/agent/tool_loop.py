@@ -44,6 +44,7 @@ async def run_tool_loop(llm_client, messages, tool_defs, max_round):
                 "role": "assistant",
                 "content": message.content,  # 可能为 None
                 "tool_calls": message.tool_calls,  # tool_calls 列表
+                "reasoning_content": getattr(message, "reasoning_content", None),
             }
         )
 
@@ -99,6 +100,7 @@ async def run_tool_loop(llm_client, messages, tool_defs, max_round):
                     "若已满足，直接组织最终行程回答，不要调用工具；"
                     "若关键信息仍有缺失，再调用工具补充。"
                 ),
+                "reasoning_content": "[内部推理汇总]",
             }
         )
 

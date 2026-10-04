@@ -28,6 +28,12 @@ class IntentClassifier:
 
         # 将上下文历史加入 messages
         if context_hint != "":
+            context = await conversation.get_context(
+                max_tokens=2000,
+                token_counter=self.llm_client.count_tokens,
+            )
+            history_text = "\n".join(f"{m['role']}: {m['content']}" for m in context[:-1])
+            message.append({"role": "system", "content": history_text})
             message.append({"role": "system", "content": context_hint})
         message.append({"role": "user", "content": user_input})
 

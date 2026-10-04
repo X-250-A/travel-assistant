@@ -121,11 +121,17 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier, CriticReviewer):
                 yield chunk
             return
         else:
-            yield {
-                "type": "token",
-                "content": "能再详细说说您的旅行需求吗？比如目的地、天数、预算？",
-            }
-            yield {"type": "done", "data": {}}
+            if len(conversation.history_cache) > 1:
+                stream = self._generate_plan(conversation)
+                async for chunk in stream:
+                    yield chunk
+                return
+            else:
+                yield {
+                    "type": "token",
+                    "content": "收到，我在这儿～您是想规划一次旅行吗？跟我聊聊目的地、几天、大概预算，我来给您出方案",
+                }
+                yield {"type": "done", "data": {}}
             return
 
         # 3. 消费流式生成器，按事件类型分流：

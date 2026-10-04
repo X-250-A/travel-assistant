@@ -314,10 +314,11 @@ class TestLLMClassifyIntent:
         assert result == "modify_trip"
 
         # 验证传给 LLM 的 messages 中包含了上下文提示
+        # 0928 后分类器注入历史：system(prompt) + system(history) + system(context_hint) + user
         call_args = create_mock.call_args
         messages = call_args.kwargs["messages"]
-        assert len(messages) == 3  # system prompt + context hint + user input
-        assert "modify_trip" in messages[1]["content"]
+        assert len(messages) == 4  # system prompt + history + context hint + user input
+        assert "modify_trip" in messages[2]["content"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -340,7 +341,8 @@ class TestHandleMessage:
         # 应该只有一条 token + done（没有调用 LLM）
         tokens = [e for e in events if e["type"] == "token"]
         assert len(tokens) == 1
-        assert "详细说说" in tokens[0]["content"]
+        # 0928 后 unclear 兜底文案：引导用户描述旅行需求
+        assert "收到，我在这儿" in tokens[0]["content"]
         assert events[-1]["type"] == "done"
 
     @pytest.mark.asyncio
