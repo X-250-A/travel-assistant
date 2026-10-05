@@ -26,9 +26,8 @@ async def create_trip(db: AsyncSession, user_id: int, title: str = "", status: s
 
 # 通过id查询指定行程
 async def find_trip_by_id(db: AsyncSession, trip_id: int):
-    query = select(Trip).where(Trip.id == trip_id)
-    result = await db.execute(query)
-    return result.scalar_one_or_none()
+    # 主键直取用 get（吃 identity map 缓存；语义与 scalar_one_or_none 等价）
+    return await db.get(Trip, trip_id)
 
 
 # 查询用户行程列表

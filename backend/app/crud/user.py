@@ -22,9 +22,8 @@ async def find_user_by_username(db: AsyncSession, username: str):
 
 # 通过用户id查找用户
 async def find_user_by_id(db: AsyncSession, user_id: int):
-    query = select(User).where(User.id == user_id)
-    result = await db.execute(query)
-    return result.scalar_one_or_none()
+    # 主键直取用 get（吃 identity map 缓存；语义与 scalar_one_or_none 等价）
+    return await db.get(User, user_id)
 
 
 # 校验用户
