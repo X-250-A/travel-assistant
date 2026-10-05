@@ -6,12 +6,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.db import close_redis, engine, init_redis
 from backend.app.exceptions import register_error_handlers
 from backend.app.logging_config import setup_logging
-from backend.app.middleware import jwt_middleware
+from backend.app.middleware import jwt_middleware, timing_middleware
 
 # 必须在 create_all 之前导入所有 model，否则它们不会注册到 Base.metadata
 from backend.app.models import Base, Message, Trip, User  # noqa: F401
 from backend.app.routers import auth, chat, trips
-from backend.app.middleware import timing_middleware
+from backend.app.services import EmbeddingClient, LLMClient
 
 setup_logging()
 
@@ -24,6 +24,8 @@ async def lifespan(app: FastAPI):
     await init_redis()
     yield
     await close_redis()
+    await LLMClient.get_instance().aclose()
+    await EmbeddingClient.get_instance().aclose()
 
 
 app = FastAPI(title="旅游助手 Agent API", version="0.8.0", lifespan=lifespan)

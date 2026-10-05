@@ -114,7 +114,7 @@ class TestChatEndpoint:
         """不传 trip_id → 创建新行程 + SSE 返回"""
         mock_llm = _make_llm_mock(intent="new_trip")
 
-        with patch("backend.app.agent.planner.LLMClient", return_value=mock_llm):
+        with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm):
             resp = await async_client.post(
                 "/api/chat",
                 json={"message": "想去成都玩三天"},
@@ -133,7 +133,7 @@ class TestChatEndpoint:
         """传 trip_id → 继续已有行程的对话"""
         mock_llm = _make_llm_mock(intent="new_trip")
 
-        with patch("backend.app.agent.planner.LLMClient", return_value=mock_llm):
+        with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm):
             resp1 = await async_client.post(
                 "/api/chat",
                 json={"message": "想去北京玩三天"},
@@ -151,7 +151,7 @@ class TestChatEndpoint:
         # 第二次请求，继续已有行程（分类为修改）
         mock_llm2 = _make_llm_mock(intent="modify_trip")
 
-        with patch("backend.app.agent.planner.LLMClient", return_value=mock_llm2):
+        with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm2):
             resp2 = await async_client.post(
                 "/api/chat",
                 json={"message": "把第二个景点改一下", "trip_id": trip_id},
@@ -197,7 +197,7 @@ class TestChatEndpoint:
         mock_llm = _make_llm_mock(intent="new_trip")
         mock_llm.chat_stream = MagicMock(side_effect=RuntimeError("LLM 调用失败"))
 
-        with patch("backend.app.agent.planner.LLMClient", return_value=mock_llm):
+        with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm):
             resp = await async_client.post(
                 "/api/chat",
                 json={"message": "想去成都玩三天"},
@@ -228,7 +228,7 @@ class TestChatCrossUser:
         """用户 B 不能访问用户 A 的行程"""
         mock_llm = _make_llm_mock(intent="new_trip")
 
-        with patch("backend.app.agent.planner.LLMClient", return_value=mock_llm):
+        with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm):
             resp = await async_client.post(
                 "/api/chat",
                 json={"message": "想去杭州玩"},

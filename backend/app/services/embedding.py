@@ -6,6 +6,14 @@ from backend.app.config import PLACEHOLDER_MARKER
 
 
 class EmbeddingClient:
+    _instance = None
+
+    @classmethod
+    def get_instance(cls):
+        if EmbeddingClient._instance is None:
+            cls._instance = EmbeddingClient()
+        return cls._instance
+
     def __init__(self):
         http_client = httpx.AsyncClient(
             proxy=None,
@@ -23,6 +31,7 @@ class EmbeddingClient:
             base_url=settings.SILICONFLOW_BASE_URL,
             api_key=settings.SILICONFLOW_API_KEY,
         )
+        self.http_client = http_client
 
         self.model = settings.SILICONFLOW_EMBEDDING_MODEL
 
@@ -37,3 +46,8 @@ class EmbeddingClient:
             input=text,
         )
         return [item.embedding for item in resp.data]
+
+    async def aclose(self):
+        if self.http_client is not None:
+            await self.http_client.aclose()
+            self.http_client = None

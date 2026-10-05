@@ -35,8 +35,8 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier):
 
     def __init__(self):
         self.prompt_builder = PromptBuilder()
-        self.llm_client = LLMClient()
-        self.embedding_client = EmbeddingClient()
+        self.llm_client = LLMClient.get_instance()
+        self.embedding_client = EmbeddingClient.get_instance()
 
     async def handle_message(self, user_input: str, conversation: ConversationManager, r: Redis):
         """Agent 主入口：接收用户消息，返回 Agent 回复（流式）"""

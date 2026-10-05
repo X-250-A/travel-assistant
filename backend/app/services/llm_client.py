@@ -13,12 +13,21 @@ from backend.app.services import mock_llm
 class LLMClient:
     """DeepSeek SDK 封装"""
 
+    _instance: LLMClient | None = None
+
+    @classmethod
+    def get_instance(cls) -> LLMClient:
+        if cls._instance is None:
+            cls._instance = cls()
+        return cls._instance
+
     def __init__(self):
         # E2E mock 模式：不建真实连接，client 换成内存假实现（意图分类/Critic 直接调 client.chat）
         if settings.LLM_PROVIDER == "mock":
             self.client = mock_llm.MockOpenAIClient()
             self.model = settings.DEEPSEEK_MODEL
             self._encoding = tiktoken.get_encoding("cl100k_base")
+            self.http_client = None
             return
         # 显式创建不设代理的 httpx 客户端，防止 Windows 系统代理干扰连接
         http_client = httpx.AsyncClient(
@@ -31,6 +40,7 @@ class LLMClient:
                 pool=5.0,
             ),
         )
+        self.http_client = http_client
         self.client = AsyncOpenAI(
             api_key=settings.DEEPSEEK_API_KEY,
             base_url=settings.DEEPSEEK_BASE_URL,
@@ -72,6 +82,11 @@ class LLMClient:
             delta = chunk.choices[0].delta
             if delta and delta.content:
                 yield delta.content
+
+    async def aclose(self):
+        if self.http_client is not None:
+            await self.http_client.aclose()
+            self.http_client = None
 
     def count_tokens(self, text: str) -> int:
         """估算 Token 数"""
