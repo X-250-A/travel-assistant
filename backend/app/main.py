@@ -10,7 +10,7 @@ from backend.app.middleware import jwt_middleware, timing_middleware
 
 # 必须在 create_all 之前导入所有 model，否则它们不会注册到 Base.metadata
 from backend.app.models import Base, Message, Trip, User  # noqa: F401
-from backend.app.routers import auth, chat, trips
+from backend.app.routers import register_routers
 from backend.app.services import EmbeddingClient, LLMClient
 
 setup_logging()
@@ -44,9 +44,7 @@ app.add_middleware(
 app.middleware("http")(jwt_middleware)
 app.middleware("http")(timing_middleware)
 
-app.include_router(auth.router)
-app.include_router(chat.router)
-app.include_router(trips.router)
+register_routers(app)
 
 
 @app.get("/")
