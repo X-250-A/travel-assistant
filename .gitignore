@@ -41,3 +41,9 @@ _test_*.py
 frontend/test-results/
 frontend/playwright-report/
 frontend/playwright/.cache/
+
+# AOCI agent host integration (machine-bound; do not commit)
+.codex/config.toml
+.codex/config.toml.backup.*
+opencode.json
+opencode.json.backup.*
