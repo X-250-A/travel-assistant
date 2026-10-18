@@ -2,6 +2,15 @@
 
 from backend.app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse, UserResponse
 from backend.app.schemas.chat import ChatRequest, DoneEvent, ErrorEvent, PlanEvent, TokenEvent
+from backend.app.schemas.intent import Intent, IntentResult
+from backend.app.schemas.llm_output import (
+    CriticResult,
+    MemoryExtractResult,
+    PrefExtractResult,
+    PrefItem,
+    PrefType,
+    QueryRewriteResult,
+)
 from backend.app.schemas.plan import Attraction, DayPlan, Meal, PlanData
 from backend.app.schemas.trip import MessageItem, TripListResponse, TripResponse, TripUpdateRequest
 
@@ -23,4 +32,12 @@ __all__ = [
     "DayPlan",
     "Attraction",
     "Meal",
+    "Intent",
+    "IntentResult",
+    "QueryRewriteResult",
+    "PrefExtractResult",
+    "PrefItem",
+    "PrefType",
+    "CriticResult",
+    "MemoryExtractResult",
 ]
