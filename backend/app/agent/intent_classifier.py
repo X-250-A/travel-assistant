@@ -3,9 +3,18 @@ import logging
 from pydantic import ValidationError
 
 from backend.app import settings
+from backend.app.agent.conversation import ConversationState
 from backend.app.schemas.intent import Intent, IntentResult
 
 logger = logging.getLogger(__name__)
+
+# 状态 → 决策参考文案。键引用 ConversationState 枚举（单一真源）：
+# 新增状态必须在此补档，禁止手写状态名字符串（与枚举漂移 = 霰弹式修改）。
+_STATE_GUIDE: dict[ConversationState, str] = {
+    ConversationState.IDLE: "IDLE（无方案）: 当前没有已生成方案，用户不可能确认方案，confirm 意图无效\n",
+    ConversationState.CONFIRMING: "CONFIRMING（有方案未确认）: 用户说可以/行/就这么定，应归为 confirm；说修改才归 modify_trip\n",
+    ConversationState.DONE: "DONE（已确认）: 行程已确认，若用户提修改，修改后需重新确认\n",
+}
 
 
 class IntentClassifier:
@@ -23,9 +32,9 @@ class IntentClassifier:
                 f"当前对话有一个已存在的行程（ID={conversation.trip_id}），"
                 f"状态为 {conversation.state.value}。"
                 f"请你根据当前会话状态以及以下对应状态决策参考，进行对应决策\n"
-                f"IDLE（无方案）: 当前没有已生成方案，用户不可能确认方案，confirm 意图无效\n"
-                f"CONFIRMING（有方案未确认）: 用户说可以/行/就这么定，应归为 confirm；说修改才归 modify_trip\n"
-                f"DONE（已确认）: 行程已确认，若用户提修改，修改后需重新确认\n"
+                f"{_STATE_GUIDE[ConversationState.IDLE]}"
+                f"{_STATE_GUIDE[ConversationState.CONFIRMING]}"
+                f"{_STATE_GUIDE[ConversationState.DONE]}"
             )
 
         # 将上下文历史加入 messages
