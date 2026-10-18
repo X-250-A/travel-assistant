@@ -79,6 +79,13 @@
 - `transport_from_previous`：当日第一个景点填 "无"
 - `meal_type` 取值为 breakfast / lunch / dinner / snack
 - `attractions` 中 `type` 取值为 景点 / 餐饮 / 购物 / 交通枢纽 / 其他
+- `duration`、`budget`、`day`、`duration_minutes`、`cost_yuan` 为数字类型（不加引号）；`date` 为字符串或 null
+
+**JSON 硬性约束（务必遵守）：**
+- 每个字段都必须出现；无值的字段照常写出（如 `date` 写 null），不要整条省略
+- `days` 必须逐天完整列出，长度等于 `duration`；所有景点和餐饮都要写完，禁止用省略号（...）、"略"、"同上"、"等等" 占位
+- JSON 内不得含注释、尾逗号或 markdown 标记（JSON 块本身的 ``` 围栏除外）
+- 只输出一个 JSON 对象，且位于整条回复的末尾
 
 ### 约束条件
 

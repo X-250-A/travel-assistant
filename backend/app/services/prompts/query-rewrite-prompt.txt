@@ -7,7 +7,11 @@
 
 改写要求：补全成一句语义完整、意图单一的话，保留用户原意，用描述"用户此刻的需求/状态"的陈述语气，不脑补用户没说过的信息（不确定就不写）。
 
-严格按 JSON 返回，不要输出其他内容：
+严格按 JSON 返回：只输出一个 JSON 对象，不要用 ```json 代码块包裹，不要输出其他内容。字段：
+- need_rewrite：布尔值，是否需要改写
+- rewritten_query：字符串，改写后的完整句子；need_rewrite 为 false 时填空字符串
+
+示例：
 - 需要改写：{"need_rewrite": true, "rewritten_query": "补全后的完整句子"}
 - 不需要改写：{"need_rewrite": false, "rewritten_query": ""}
 
