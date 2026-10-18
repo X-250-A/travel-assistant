@@ -4,6 +4,23 @@ PromptBuilder: System Prompt 模板 + 上下文拼接
 
 from pathlib import Path
 
+from backend.app.schemas.intent import Intent
+from backend.app.schemas.llm_output import PrefType
+
+# 枚举数量渲染用中文数字（prompt 文案风格：五个值之一 / 四者之一）
+_CN_NUM = {
+    1: "一",
+    2: "二",
+    3: "三",
+    4: "四",
+    5: "五",
+    6: "六",
+    7: "七",
+    8: "八",
+    9: "九",
+    10: "十",
+}
+
 
 class PromptBuilder:
     """System Prompt + 上下文组装"""
@@ -52,8 +69,11 @@ class PromptBuilder:
         return self.system_prompt
 
     def build_intent_classifier_prompt(self) -> str:
-        """返回 Intent_classifier Prompt（静态模板）"""
-        return self.intent_classifier_prompt
+        """返回 Intent_classifier Prompt —— {intent_values} 占位符由 Intent 枚举单一真源渲染，防 prompt 与枚举漂移"""
+        values = "、".join(m.value for m in Intent)
+        return self.intent_classifier_prompt.replace(
+            "{intent_values}", f"{values} {_CN_NUM[len(Intent)]}个值之一"
+        )
 
     def build_critic_prompt(self) -> str:
         """返回 critic Prompt（静态模板）"""
@@ -71,7 +91,11 @@ class PromptBuilder:
         )
 
     def build_pref_extract_prompt(self, user_input: str) -> str:
-        return self.pref_extract_prompt.replace("{user_input}", user_input)
+        # {pref_type_values} 由 PrefType 枚举单一真源渲染（含数量），防 prompt 与枚举漂移
+        values = "、".join(t.value for t in PrefType)
+        return self.pref_extract_prompt.replace("{user_input}", user_input).replace(
+            "{pref_type_values}", f"{values} {_CN_NUM[len(PrefType)]}者之一"
+        )
 
     def build_summary_prompt(self, old_summary: str, evicted_messages: str) -> str:
         return self.summary_prompt.replace("{old_summary}", old_summary or "").replace(
