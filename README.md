@@ -2,7 +2,7 @@
 
 基于 DeepSeek V4 大模型的智能旅游规划助手，通过多轮对话理解用户偏好，自动生成结构化行程方案。
 
-> **最新版本**: v1.0.0 — "全链路 E2E 竣工" 🎯 | [更新日志](RELEASE_NOTES.md)
+> **最新版本**: v1.1.0 — "SSOT 契约化收口" 🧱 | [更新日志](RELEASE_NOTES.md)
 
 [![CI](https://github.com/X-250-A/travel-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/X-250-A/travel-assistant/actions/workflows/ci.yml)
 
@@ -161,6 +161,7 @@ docker-compose logs -f
 
 | 版本 | 日期 | 说明 |
 |---|---|---|
+| v1.1.0 | 2026-10-18 | SSOT 契约化收口（意图/状态/偏好枚举单一真源 + 结构化输出 pydantic 收口）+ 记忆系统升级 + 会话状态机 |
 | v1.0.0 | 2026-08-18 | 全链路 E2E（mock LLM + Playwright）+ SSE done 事件 bug 修复 |
 | v0.9.0 | 2026-08-17 | POI 景点查询工具（高德）+ 向量语义记忆（bge-m3 嵌入 + KNN 召回） |
 | [v0.8.0](https://github.com/X-250-A/travel-assistant/releases/tag/v0.8.0) | 2026-08-09 | 行程方案 Critic 复盘（自评自纠）—— 二轮审查 + 条件重生成 |

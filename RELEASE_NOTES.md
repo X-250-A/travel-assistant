@@ -1,6 +1,49 @@
 # 发布记录
 
-> 项目版本演进日志 · v0.1.0 → v1.0.0 · 最新版本在顶部
+> 项目版本演进日志 · v0.1.0 → v1.1.0 · 最新版本在顶部
+
+---
+
+# Release v1.1.0 — "SSOT 契约化收口" 🧱
+
+> 2026-10-18 · 自 v1.0.0 起（44 个提交，跨 2 个月）
+
+---
+
+## 概述
+
+v1.1.0 是对 v1.0.0 之后两个月的工程沉淀做**契约化收口**：把散落在 prompt/白名单/if-elif 三处的意图清单、手写状态字符串、偏好类型字典、prompt 内枚举清单，全部收敛为单一真源（枚举 + pydantic 契约 + 生成式渲染），并从「容忍型 JSON 解析」升级为「严格校验 + 显式降级」。不加新功能，但把 Agent 的失效模式从「静默漂移」变成「可预测失败」。
+
+---
+
+## 新增 — 状态机与确认流程 🎛️
+
+- 会话状态收敛为三态（IDLE / CONFIRMING / DONE），新增 confirm 意图与 context_hint 分档，状态零存储推导
+- 意图分发改 match-case + `assert_never` 穷尽检查——漏分支直接显式爆炸，不再静默 unclear
+
+## 新增 — 记忆系统升级 🧠
+
+- 用户偏好 LLM 结构化提取（饮食/预算/出行/节奏四类）+ 跨会话 Redis 持久化，query 改写落地
+- 对话脉络摘要：上下文驱逐时旧消息滚动压缩进 summary
+
+## 新增 — Critic 独立模块与工具扩展 🔧
+
+- Critic 审查闭环拆为独立模块 run_critic_loop + 分数硬校验双层防线（CRITIC_SCORE_THRESHOLD）
+- 工具调用循环独立成 run_tool_loop + MAX_TOOL_ROUND 进 config；工具参数解析失败让模型自纠错（上限 2 次）
+- 新增 food_recommend 美食推荐工具
+
+## 工程化 — 可观测性与 CI 🏗️
+
+- pre-commit（ruff）+ GitHub Actions CI（pytest + Playwright E2E 全自动）
+- 异常体系/logging 收口、httpx 连接池单例化 + lifespan 优雅关闭、get_db function scope 事务边界
+- 前端车票主题 UI（Barcode/Stamp/TicketNav/ConfirmDialog）
+
+## 重构 — SSOT 契约化收口 🧱
+
+- 意图清单单一真源：Intent StrEnum + IntentResult 等 5 个 LLM 输出契约模型，planner/critic/intent_classifier 统一 `model_validate_json` 收口
+- TripStatus / PrefType 枚举全链路引用（models/crud/conversation/planner/preferences），消灭霰弹式修改
+- prompt 枚举清单生成化：`{intent_values}`/`{pref_type_values}` 占位符由枚举渲染，prompt 与代码零漂移
+- context_hint 状态分档引用 ConversationState 枚举
 
 ---
 
