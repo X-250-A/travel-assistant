@@ -5,6 +5,7 @@ TripPlannerAgent: 行程规划 Agent 核心
 """
 
 import json
+from typing import assert_never
 
 from pydantic import ValidationError
 from redis.asyncio import Redis
@@ -24,6 +25,12 @@ from backend.app.memory import (
     recall_vector_memory,
     save_preferences,
     save_vector_memory,
+)
+from backend.app.schemas.intent import Intent
+from backend.app.schemas.llm_output import (
+    MemoryExtractResult,
+    PrefExtractResult,
+    QueryRewriteResult,
 )
 from backend.app.schemas.plan import PlanData
 from backend.app.services import EmbeddingClient, LLMClient, PromptBuilder
@@ -62,8 +69,8 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier):
                     response_format={"type": "json_object"},
                     timeout=settings.LLM_REQUEST_TIMEOUT,
                 )
-                result = json.loads(response.choices[0].message.content)
-                query_text = result["rewritten_query"] if result["need_rewrite"] else user_input
+                result = QueryRewriteResult.model_validate_json(response.choices[0].message.content)
+                query_text = result.rewritten_query if result.need_rewrite else user_input
             except Exception as e:
                 logger.warning("query 改写失败，回退原句：%s", e)
                 query_text = user_input
@@ -87,52 +94,56 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier):
         # 2. 意图判断及分支选择
         intent = await self.llm_classify_intent(user_input, conversation)
 
-        if intent == "new_trip":
-            stream = self._generate_plan(conversation)
-        elif intent == "modify_trip":
-            # 将历史上下文注入缓存
-            await conversation.get_context(
-                max_tokens=settings.CONTEXT_WINDOW_MAX_TOKENS,
-                token_counter=self.llm_client.count_tokens,
-            )
-            # 找到对应行程才能修改
-            trip = await find_trip_by_id(conversation.db, conversation.trip_id)
-            if trip is None:
+        match intent:
+            case Intent.NEW_TRIP:
+                stream = self._generate_plan(conversation)
+            case Intent.MODIFY_TRIP:
+                # 将历史上下文注入缓存
+                await conversation.get_context(
+                    max_tokens=settings.CONTEXT_WINDOW_MAX_TOKENS,
+                    token_counter=self.llm_client.count_tokens,
+                )
+                # 找到对应行程才能修改
+                trip = await find_trip_by_id(conversation.db, conversation.trip_id)
+                if trip is None:
+                    yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
+                    return
+                if trip.plan_data is None:
+                    yield {"type": "token", "content": "当前还没有行程方案，我先帮你规划一个吧！\n"}
+                    stream = self._generate_plan(conversation)
+                else:
+                    stream = self._apply_feedback(user_input, trip.plan_data, conversation)
+            case Intent.CONFIRM:
+                if trip is None or trip.plan_data is None:
+                    yield {
+                        "type": "token",
+                        "content": "还没有行程方案可以确认，我先帮你规划一个吧！",
+                    }
+                    yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
+                    return
+                await update_trip(conversation.db, conversation.trip_id, status="confirmed")
+                conversation.state = ConversationState.DONE
+                yield {"type": "token", "content": "好的，行程已确认！"}
                 yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
                 return
-            if trip.plan_data is None:
-                yield {"type": "token", "content": "当前还没有行程方案，我先帮你规划一个吧！\n"}
-                stream = self._generate_plan(conversation)
-            else:
-                stream = self._apply_feedback(user_input, trip.plan_data, conversation)
-        elif intent == "confirm":
-            if trip is None or trip.plan_data is None:
-                yield {"type": "token", "content": "还没有行程方案可以确认，我先帮你规划一个吧！"}
-                yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
-                return
-            await update_trip(conversation.db, conversation.trip_id, status="confirmed")
-            conversation.state = ConversationState.DONE
-            yield {"type": "token", "content": "好的，行程已确认！"}
-            yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
-            return
-
-        elif intent == "ask_question":
-            async for chunk in self.gossip(conversation):
-                yield chunk
-            return
-        else:
-            if len(conversation.history_cache) > 1:
-                stream = self._generate_plan(conversation)
-                async for chunk in stream:
+            case Intent.ASK_QUESTION:
+                async for chunk in self.gossip(conversation):
                     yield chunk
                 return
-            else:
+            case Intent.UNCLEAR:
+                if len(conversation.history_cache) > 1:
+                    stream = self._generate_plan(conversation)
+                    async for chunk in stream:
+                        yield chunk
+                    return
                 yield {
                     "type": "token",
                     "content": "收到，我在这儿～您是想规划一次旅行吗？跟我聊聊目的地、几天、大概预算，我来给您出方案",
                 }
                 yield {"type": "done", "data": {}}
-            return
+                return
+            case _:
+                assert_never(intent)
 
         # 3. 消费流式生成器，按事件类型分流：
         #    - token 事件 → 拼进 full_text，同时转发给前端（打字机）
@@ -199,9 +210,9 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier):
                 response_format={"type": "json_object"},
                 model=settings.DEEPSEEK_MODEL,
             )
-            data = json.loads(response.choices[0].message.content)
-            if data["should_save"]:
-                prefs = [Preferences(type=p["type"], value=p["value"]) for p in data["prefs"]]
+            result = PrefExtractResult.model_validate_json(response.choices[0].message.content)
+            if result.should_save:
+                prefs = [Preferences(type=p.type, value=p.value) for p in result.prefs]
                 await save_preferences(r, conversation.user_id, prefs)
 
         except Exception as e:
@@ -221,10 +232,12 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier):
             # ① 提取：复刻 llm_classify_intent 的 prompt 组装
             prompt = self.prompt_builder.build_memory_extract_prompt(user_input)
             message = [{"role": "system", "content": prompt}]
-            result = await self.llm_client.chat(message, tools=None)  # tools=None 对齐意图识别
-            data = json.loads(result.content)  # content 是返回文本
-            facts = data.get("facts", [])
-            if not data.get("should_save") or not facts:
+            result = await self.llm_client.chat(
+                message, tools=None, response_format={"type": "json_object"}
+            )
+            data = MemoryExtractResult.model_validate_json(result.content)  # content 是返回文本
+            facts = data.facts
+            if not data.should_save or not facts:
                 return
             # ② embed 全部 facts（一次批量）
             vecs = await self.embedding_client.embed(facts)

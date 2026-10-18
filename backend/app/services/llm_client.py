@@ -49,7 +49,9 @@ class LLMClient:
         self.model = settings.DEEPSEEK_MODEL
         self._encoding = tiktoken.get_encoding("cl100k_base")
 
-    async def chat(self, messages: list[dict], tools: list[dict]):
+    async def chat(
+        self, messages: list[dict], tools: list[dict] | None, response_format: dict | None = None
+    ):
         """非流式调用，返回完整响应文本"""
         if settings.LLM_PROVIDER == "mock":
             return mock_llm.mock_chat(messages, tools)
@@ -61,6 +63,8 @@ class LLMClient:
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = "auto"
+        if response_format is not None:
+            kwargs["response_format"] = response_format
 
         responses = await self.client.chat.completions.create(**kwargs)
 

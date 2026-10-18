@@ -1,13 +1,15 @@
-import json
 import logging
 
+from pydantic import ValidationError
+
 from backend.app import settings
+from backend.app.schemas.intent import Intent, IntentResult
 
 logger = logging.getLogger(__name__)
 
 
 class IntentClassifier:
-    async def llm_classify_intent(self, user_input: str, conversation):
+    async def llm_classify_intent(self, user_input: str, conversation) -> Intent:
         """LLM轻量意图识别"""
         intent_classifier_prompt = self.prompt_builder.build_intent_classifier_prompt()
 
@@ -46,33 +48,32 @@ class IntentClassifier:
                 temperature=0,
                 response_format={"type": "json_object"},
             )
-            result = json.loads(resp.choices[0].message.content)
-            intent = result.get("intent", "unclear")
-            if intent not in ("new_trip", "modify_trip", "ask_question", "unclear", "confirm"):
-                intent = "unclear"
-            return intent
+            return IntentResult.model_validate_json(resp.choices[0].message.content).intent
+        except ValidationError as e:
+            logger.warning("意图值非法，归为 unclear：%s", e)
+            return Intent.UNCLEAR
         except Exception as e:
             logger.warning("LLM 意图分类失败，回退关键词：%s", e)
             # 4. fallback 到关键词匹配
             return self._keyword_classify(user_input)
 
-    def _keyword_classify(self, user_input: str):
+    def _keyword_classify(self, user_input: str) -> Intent:
         """老方法：关键词匹配"""
         text = user_input.strip()
 
         # 修改意图的关键词
         modified_keywords = ["修改", "调整", "换", "去掉", "增加", "改成", "不要", "换个"]
         if any(kw in text for kw in modified_keywords):
-            return "modify_trip"
+            return Intent.MODIFY_TRIP
 
         # 新行程的关键词
         new_keywords = ["规划", "想去", "安排", "帮我", "推荐", "三日", "几日", "旅游", "旅行"]
         if any(kw in text for kw in new_keywords):
-            return "new_trip"
+            return Intent.NEW_TRIP
 
         # 提问类
         question_keywords = ["?", "？", "怎么样", "如何", "什么是", "介绍一下"]
         if any(kw in text for kw in question_keywords):
-            return "ask_question"
+            return Intent.ASK_QUESTION
 
-        return "unclear"
+        return Intent.UNCLEAR

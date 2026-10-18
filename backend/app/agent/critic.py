@@ -12,6 +12,7 @@ from pydantic import ValidationError
 
 from backend.app import settings
 from backend.app.agent.extract_json import extract_plan_json
+from backend.app.schemas.llm_output import CriticResult
 from backend.app.schemas.plan import PlanData
 
 logger = logging.getLogger(__name__)
@@ -49,10 +50,10 @@ async def _ask_critic(
             messages=messages,
             response_format={"type": "json_object"},
         )
-        result = json.loads(response.choices[0].message.content)
-        passed = result.get("passed")
-        scores = result.get("scores", {})
-        issues = result.get("issues", [])
+        result = CriticResult.model_validate_json(response.choices[0].message.content)
+        passed = result.passed
+        scores = result.scores
+        issues = result.issues
         # 防御：LLM 可能自相矛盾（passed=True 但给了修正项），保守按不达标处理，
         # 保证「有 issues 就触发重生成」这一判定树规则不被绕过
         if issues and passed is True:
@@ -69,9 +70,7 @@ async def _ask_critic(
                     for dim, score in scores.items()
                     if score < settings.CRITIC_SCORE_THRESHOLD
                 ]
-        if not isinstance(issues, list):
-            issues = []
-        issues = [str(i) for i in issues][:3]
+        issues = issues[:3]
     except Exception as e:
         logger.warning("审查结果解析失败：%s", e)
         return None
