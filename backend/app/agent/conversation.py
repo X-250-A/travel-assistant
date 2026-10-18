@@ -10,6 +10,7 @@ from enum import StrEnum
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.app.crud import create_trip, get_all_trip_messages, save_message
+from backend.app.models import TripStatus
 
 
 class ConversationState(StrEnum):
@@ -36,7 +37,9 @@ class ConversationManager:
         """创建新会话，关联到某个 Trip"""
         # status 必须用 Trip 的合法值 "draft"，不能用会话状态 self.state（idle/planning/...）
         # 二者是不同的枚举体系：Trip.status ∈ {draft, confirmed}，ConversationState ∈ {idle, planning, ...}
-        trip = await create_trip(db=self.db, user_id=self.user_id, title=title, status="draft")
+        trip = await create_trip(
+            db=self.db, user_id=self.user_id, title=title, status=TripStatus.DRAFT
+        )
         await self.db.commit()
         self.trip_id = trip.id
         return trip
@@ -69,7 +72,7 @@ class ConversationManager:
     def sync_state(self, trip):
         if trip is None or trip.plan_data is None:
             self.state = ConversationState.IDLE
-        elif trip.status == "confirmed":
+        elif trip.status == TripStatus.CONFIRMED:
             self.state = ConversationState.DONE
         else:
             self.state = ConversationState.CONFIRMING

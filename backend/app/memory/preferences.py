@@ -4,34 +4,39 @@ from dataclasses import dataclass
 from redis.asyncio import Redis
 
 from backend.app import settings
+from backend.app.schemas.llm_output import PrefType
 
 PREFERENCE_PATTERNS = [
-    # (类型, 正则, 取值回调)
+    # (PrefType, 正则, 取值回调)
     (
-        "饮食",
+        PrefType.DIET,
         r"不(?:吃|要|碰|忌)([^，。?!\s]{1,4})",
         lambda m: f"忌口{m.group(1)}",
     ),  # "不吃辣" → 忌口辣
     (
-        "预算",
+        PrefType.BUDGET,
         r"预算(?:大约|大概|最多)?(\d+)\s*元?",
         lambda m: f"上限{m.group(1)}",
     ),  # "预算3000元" → 上限3000元
-    ("出行", r"不(?:想|要|喜欢|爱)(爬山|暴走|走远路)", lambda m: f"不想{m.group(1)}"),  # "不想爬山"
-    ("节奏", r"不(?:想|要|喜欢)(赶|太赶|紧凑)", lambda m: f"{m.group(1)}"),  # "不要赶行程"
+    (
+        PrefType.MOBILITY,
+        r"不(?:想|要|喜欢|爱)(爬山|暴走|走远路)",
+        lambda m: f"不想{m.group(1)}",
+    ),  # "不想爬山"
+    (PrefType.PACE, r"不(?:想|要|喜欢)(赶|太赶|紧凑)", lambda m: f"{m.group(1)}"),  # "不要赶行程"
 ]
 
-MERGE_RULES = {
-    "饮食": "add",
-    "预算": "replace",
-    "出行": "replace",
-    "节奏": "replace",
+MERGE_RULES: dict[PrefType, str] = {
+    PrefType.DIET: "add",
+    PrefType.BUDGET: "replace",
+    PrefType.MOBILITY: "replace",
+    PrefType.PACE: "replace",
 }
 
 
 @dataclass
 class Preferences:
-    type: str
+    type: PrefType
     value: str
 
 

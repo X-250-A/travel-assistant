@@ -2,10 +2,19 @@
 Trip 实体（关联 User）
 """
 
+from enum import StrEnum
+
 from sqlalchemy import JSON, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from backend.app.models import Base
+
+
+class TripStatus(StrEnum):
+    """行程状态 —— trip.status 列值域的单一真源，禁止在其他文件手写 "draft"/"confirmed" 字符串。"""
+
+    DRAFT = "draft"
+    CONFIRMED = "confirmed"
 
 
 class Trip(Base):
@@ -18,4 +27,4 @@ class Trip(Base):
         JSON, nullable=True, comment="LLM生成的完整行程json"
     )
     summary: Mapped[str | None] = mapped_column(Text, nullable=True, comment="会话脉络摘要")
-    status: Mapped[str] = mapped_column(String(20), default="draft", comment="行程状态")
+    status: Mapped[str] = mapped_column(String(20), default=TripStatus.DRAFT, comment="行程状态")

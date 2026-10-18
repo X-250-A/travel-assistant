@@ -26,6 +26,7 @@ from backend.app.memory import (
     save_preferences,
     save_vector_memory,
 )
+from backend.app.models import TripStatus
 from backend.app.schemas.intent import Intent
 from backend.app.schemas.llm_output import (
     MemoryExtractResult,
@@ -121,7 +122,9 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier):
                     }
                     yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
                     return
-                await update_trip(conversation.db, conversation.trip_id, status="confirmed")
+                await update_trip(
+                    conversation.db, conversation.trip_id, status=TripStatus.CONFIRMED
+                )
                 conversation.state = ConversationState.DONE
                 yield {"type": "token", "content": "好的，行程已确认！"}
                 yield {"type": "done", "data": {"trip_id": conversation.trip_id}}
@@ -192,7 +195,10 @@ class TripPlannerAgent(PlanJSONExtractor, IntentClassifier):
         if plan_data is not None:
             try:
                 await update_trip(
-                    conversation.db, conversation.trip_id, plan_data=plan_data, status="draft"
+                    conversation.db,
+                    conversation.trip_id,
+                    plan_data=plan_data,
+                    status=TripStatus.DRAFT,
                 )
             except Exception as e:
                 logger.error("保存行程失败：%s", e)

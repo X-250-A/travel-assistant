@@ -6,13 +6,15 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.app.models import Message, Trip
+from backend.app.models import Message, Trip, TripStatus
 from backend.app.utils.loggings import crud_logger
 
 
 # 创建行程
 @crud_logger(action="create_trip")
-async def create_trip(db: AsyncSession, user_id: int, title: str = "", status: str = "draft"):
+async def create_trip(
+    db: AsyncSession, user_id: int, title: str = "", status: str = TripStatus.DRAFT
+):
     trip = Trip(
         user_id=user_id,
         title=title,
