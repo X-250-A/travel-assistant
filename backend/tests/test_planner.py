@@ -6,50 +6,19 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.app.agent import ConversationManager, ConversationState, TripPlannerAgent
+from backend.app.schemas.intent import Intent
+from backend.tests.conftest import FAKE_TRIP_DICT
 
-# ─── 测试用的假行程 JSON ──────────────────────────────────────────────────
-FAKE_TRIP_JSON = json.dumps(
-    {
-        "destination": "成都",
-        "duration": 3,
-        "budget": 3000,
-        "style": ["美食", "人文"],
-        "overview": "三日成都美食之旅",
-        "days": [
-            {
-                "day": 1,
-                "date": None,
-                "theme": "市区初探",
-                "attractions": [
-                    {
-                        "name": "宽窄巷子",
-                        "type": "景点",
-                        "duration_minutes": 120,
-                        "cost_yuan": 0,
-                        "tips": "上午去人少",
-                        "transport_from_previous": "无",
-                    }
-                ],
-                "meals": [
-                    {
-                        "meal_type": "lunch",
-                        "suggestion": "奎星楼街吃串串，人均 50",
-                        "location_near": "宽窄巷子",
-                    }
-                ],
-            }
-        ],
-        "overall_tips": "带伞",
-    }
-)
+# ─── 测试用的假行程 JSON（真源 FAKE_TRIP_DICT 在 conftest，单一真源）────────
+FAKE_TRIP_JSON = json.dumps(FAKE_TRIP_DICT)
 
 # ─── LLM 分类返回的假响应 ─────────────────────────────────────────────────
-FAKE_CLASSIFY_NEW_TRIP = json.dumps({"intent": "new_trip", "reason": "用户表达了旅行意愿"})
-FAKE_CLASSIFY_MODIFY = json.dumps({"intent": "modify_trip", "reason": "用户想修改行程"})
+FAKE_CLASSIFY_NEW_TRIP = json.dumps({"intent": Intent.NEW_TRIP, "reason": "用户表达了旅行意愿"})
+FAKE_CLASSIFY_MODIFY = json.dumps({"intent": Intent.MODIFY_TRIP, "reason": "用户想修改行程"})
 FAKE_CLASSIFY_QUESTION = json.dumps(
-    {"intent": "ask_question", "reason": "用户提出了一个知识性问题"}
+    {"intent": Intent.ASK_QUESTION, "reason": "用户提出了一个知识性问题"}
 )
-FAKE_CLASSIFY_UNCLEAR = json.dumps({"intent": "unclear", "reason": "用户输入过于模糊"})
+FAKE_CLASSIFY_UNCLEAR = json.dumps({"intent": Intent.UNCLEAR, "reason": "用户输入过于模糊"})
 
 
 # ─── 辅助：创建一个带 mock LLM 的 Agent ──────────────────────────────────
@@ -69,7 +38,7 @@ def _make_agent(stream_chunks: list[str]) -> TripPlannerAgent:
     agent.llm_client.chat_stream = MagicMock(return_value=mock_stream)
 
     # 默认 mock 意图分类为 unclear（各测试可按需覆盖）
-    agent.llm_classify_intent = AsyncMock(return_value="unclear")
+    agent.llm_classify_intent = AsyncMock(return_value=Intent.UNCLEAR)
     return agent
 
 
@@ -138,13 +107,13 @@ class TestKeywordClassify:
     @pytest.mark.parametrize(
         "text,expected",
         [
-            ("帮我规划一次去成都的旅行", "new_trip"),
-            ("想去北京玩三天", "new_trip"),
-            ("推荐一个三日游", "new_trip"),
-            ("安排一次家庭旅游", "new_trip"),
-            ("帮我看看南京有什么好玩的", "new_trip"),
-            ("旅游去西安", "new_trip"),
-            ("旅行到桂林", "new_trip"),
+            ("帮我规划一次去成都的旅行", Intent.NEW_TRIP),
+            ("想去北京玩三天", Intent.NEW_TRIP),
+            ("推荐一个三日游", Intent.NEW_TRIP),
+            ("安排一次家庭旅游", Intent.NEW_TRIP),
+            ("帮我看看南京有什么好玩的", Intent.NEW_TRIP),
+            ("旅游去西安", Intent.NEW_TRIP),
+            ("旅行到桂林", Intent.NEW_TRIP),
         ],
     )
     def test_new_trip_keywords(self, text, expected):
@@ -154,14 +123,14 @@ class TestKeywordClassify:
     @pytest.mark.parametrize(
         "text,expected",
         [
-            ("修改第二天的行程", "modify_trip"),
-            ("把第三天的景点调整一下", "modify_trip"),
-            ("换一个餐厅吧", "modify_trip"),
-            ("去掉宽窄巷子", "modify_trip"),
-            ("增加一个景点", "modify_trip"),
-            ("改成三天", "modify_trip"),
-            ("不要这个酒店", "modify_trip"),
-            ("换个方案看看", "modify_trip"),
+            ("修改第二天的行程", Intent.MODIFY_TRIP),
+            ("把第三天的景点调整一下", Intent.MODIFY_TRIP),
+            ("换一个餐厅吧", Intent.MODIFY_TRIP),
+            ("去掉宽窄巷子", Intent.MODIFY_TRIP),
+            ("增加一个景点", Intent.MODIFY_TRIP),
+            ("改成三天", Intent.MODIFY_TRIP),
+            ("不要这个酒店", Intent.MODIFY_TRIP),
+            ("换个方案看看", Intent.MODIFY_TRIP),
         ],
     )
     def test_modify_trip_keywords(self, text, expected):
@@ -171,12 +140,12 @@ class TestKeywordClassify:
     @pytest.mark.parametrize(
         "text,expected",
         [
-            ("成都怎么样？", "ask_question"),
-            ("有什么好玩的吗？", "ask_question"),
-            ("什么是宽窄巷子", "ask_question"),
-            ("介绍一下成都", "ask_question"),
+            ("成都怎么样？", Intent.ASK_QUESTION),
+            ("有什么好玩的吗？", Intent.ASK_QUESTION),
+            ("什么是宽窄巷子", Intent.ASK_QUESTION),
+            ("介绍一下成都", Intent.ASK_QUESTION),
             # "如何安排行程比较好" 含 "安排" → new_keywords 优先 → new_trip
-            ("如何安排行程比较好", "new_trip"),
+            ("如何安排行程比较好", Intent.NEW_TRIP),
         ],
     )
     def test_ask_question_keywords(self, text, expected):
@@ -194,19 +163,19 @@ class TestKeywordClassify:
     )
     def test_unclear(self, text):
         agent = TripPlannerAgent()
-        assert agent._keyword_classify(text) == "unclear"
+        assert agent._keyword_classify(text) == Intent.UNCLEAR
 
     def test_modify_takes_priority_over_new(self):
         """修改关键词优先于新建（同时包含时，先匹配 modify）"""
         agent = TripPlannerAgent()
         # "调整" 在 modified_keywords 里，"规划" 在 new_keywords 里
-        assert agent._keyword_classify("调整一下去成都的规划") == "modify_trip"
+        assert agent._keyword_classify("调整一下去成都的规划") == Intent.MODIFY_TRIP
 
     def test_new_takes_priority_over_question(self):
         """新建关键词优先于提问（同时包含时，先匹配 new）"""
         agent = TripPlannerAgent()
         # "想去" 在 new_keywords，"怎么样" 在 question_keywords
-        assert agent._keyword_classify("想去成都，怎么样？") == "new_trip"
+        assert agent._keyword_classify("想去成都，怎么样？") == Intent.NEW_TRIP
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -221,10 +190,10 @@ class TestLLMClassifyIntent:
         agent = TripPlannerAgent()
         conv = _make_conversation_manager()
         agent.llm_client.client.chat.completions.create = AsyncMock(
-            return_value=_mock_classify_response("new_trip")
+            return_value=_mock_classify_response(Intent.NEW_TRIP)
         )
         result = await agent.llm_classify_intent("我想去北京玩", conv)
-        assert result == "new_trip"
+        assert result == Intent.NEW_TRIP
 
     @pytest.mark.asyncio
     async def test_classify_modify_trip(self):
@@ -232,10 +201,10 @@ class TestLLMClassifyIntent:
         agent = TripPlannerAgent()
         conv = _make_conversation_manager()
         agent.llm_client.client.chat.completions.create = AsyncMock(
-            return_value=_mock_classify_response("modify_trip")
+            return_value=_mock_classify_response(Intent.MODIFY_TRIP)
         )
         result = await agent.llm_classify_intent("把第二天改一下", conv)
-        assert result == "modify_trip"
+        assert result == Intent.MODIFY_TRIP
 
     @pytest.mark.asyncio
     async def test_classify_ask_question(self):
@@ -243,10 +212,10 @@ class TestLLMClassifyIntent:
         agent = TripPlannerAgent()
         conv = _make_conversation_manager()
         agent.llm_client.client.chat.completions.create = AsyncMock(
-            return_value=_mock_classify_response("ask_question")
+            return_value=_mock_classify_response(Intent.ASK_QUESTION)
         )
         result = await agent.llm_classify_intent("成都有什么好吃的？", conv)
-        assert result == "ask_question"
+        assert result == Intent.ASK_QUESTION
 
     @pytest.mark.asyncio
     async def test_classify_unclear(self):
@@ -254,10 +223,10 @@ class TestLLMClassifyIntent:
         agent = TripPlannerAgent()
         conv = _make_conversation_manager()
         agent.llm_client.client.chat.completions.create = AsyncMock(
-            return_value=_mock_classify_response("unclear")
+            return_value=_mock_classify_response(Intent.UNCLEAR)
         )
         result = await agent.llm_classify_intent("嗯嗯", conv)
-        assert result == "unclear"
+        assert result == Intent.UNCLEAR
 
     @pytest.mark.asyncio
     async def test_fallback_on_llm_error(self):
@@ -270,7 +239,7 @@ class TestLLMClassifyIntent:
         )
         # 关键词匹配："想去" 命中 new_trip
         result = await agent.llm_classify_intent("想去成都", conv)
-        assert result == "new_trip"
+        assert result == Intent.NEW_TRIP
 
     @pytest.mark.asyncio
     async def test_fallback_on_invalid_intent(self):
@@ -281,7 +250,7 @@ class TestLLMClassifyIntent:
             return_value=_mock_classify_response("book_hotel")  # 不在四分类中
         )
         result = await agent.llm_classify_intent("帮我订个酒店", conv)
-        assert result == "unclear"
+        assert result == Intent.UNCLEAR
 
     @pytest.mark.asyncio
     async def test_classify_with_context_new_trip(self):
@@ -290,11 +259,11 @@ class TestLLMClassifyIntent:
         conv = _make_conversation_manager()
         conv.trip_id = 0  # 无已有行程
 
-        create_mock = AsyncMock(return_value=_mock_classify_response("new_trip"))
+        create_mock = AsyncMock(return_value=_mock_classify_response(Intent.NEW_TRIP))
         agent.llm_client.client.chat.completions.create = create_mock
 
         result = await agent.llm_classify_intent("想去成都", conv)
-        assert result == "new_trip"
+        assert result == Intent.NEW_TRIP
 
         # 验证传给 LLM 的 messages 中没有上下文提示
         call_args = create_mock.call_args
@@ -310,18 +279,18 @@ class TestLLMClassifyIntent:
         conv.trip_id = 5
         conv.state = ConversationState.CONFIRMING
 
-        create_mock = AsyncMock(return_value=_mock_classify_response("modify_trip"))
+        create_mock = AsyncMock(return_value=_mock_classify_response(Intent.MODIFY_TRIP))
         agent.llm_client.client.chat.completions.create = create_mock
 
         result = await agent.llm_classify_intent("换个景点", conv)
-        assert result == "modify_trip"
+        assert result == Intent.MODIFY_TRIP
 
         # 验证传给 LLM 的 messages 中包含了上下文提示
         # 0928 后分类器注入历史：system(prompt) + system(history) + system(context_hint) + user
         call_args = create_mock.call_args
         messages = call_args.kwargs["messages"]
         assert len(messages) == 4  # system prompt + history + context hint + user input
-        assert "modify_trip" in messages[2]["content"]
+        assert Intent.MODIFY_TRIP in messages[2]["content"]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -334,7 +303,7 @@ class TestHandleMessage:
     async def test_handle_unclear_intent(self):
         """意图不明时返回引导语，不发 token"""
         agent = _make_agent([])
-        # _make_agent 默认 mock llm_classify_intent 返回 "unclear"
+        # _make_agent 默认 mock llm_classify_intent 返回 Intent.UNCLEAR
         conv = _make_conversation_manager()
 
         events = []
@@ -353,7 +322,7 @@ class TestHandleMessage:
         """new_trip 意图 → 调 LLM → 输出 token → done"""
         chunks = ['{"destination": "成都"', "}\n"]
         agent = _make_agent(chunks)
-        agent.llm_classify_intent = AsyncMock(return_value="new_trip")
+        agent.llm_classify_intent = AsyncMock(return_value=Intent.NEW_TRIP)
         conv = _make_conversation_manager()
 
         events = []
@@ -377,7 +346,7 @@ class TestHandleMessage:
         """LLM 返回合法 JSON → 行程被保存"""
         chunks = [FAKE_TRIP_JSON]
         agent = _make_agent(chunks)
-        agent.llm_classify_intent = AsyncMock(return_value="new_trip")
+        agent.llm_classify_intent = AsyncMock(return_value=Intent.NEW_TRIP)
         conv = _make_conversation_manager()
 
         # 用 patch 替换 update_trip 以捕获调用
@@ -395,7 +364,7 @@ class TestHandleMessage:
         """LLM 在 JSON 前后加了文字 → 正则提取后仍能保存"""
         chunks = ["好的，这是你的行程：\n" + FAKE_TRIP_JSON + "\n祝你旅途愉快！"]
         agent = _make_agent(chunks)
-        agent.llm_classify_intent = AsyncMock(return_value="new_trip")
+        agent.llm_classify_intent = AsyncMock(return_value=Intent.NEW_TRIP)
         conv = _make_conversation_manager()
 
         with patch("backend.app.agent.planner.update_trip", new_callable=AsyncMock):
@@ -410,7 +379,7 @@ class TestHandleMessage:
         """修改已有行程 → _apply_feedback 路径"""
         chunks = ['{"destination": "成都", "duration": 4', "}\n"]
         agent = _make_agent(chunks)
-        agent.llm_classify_intent = AsyncMock(return_value="modify_trip")
+        agent.llm_classify_intent = AsyncMock(return_value=Intent.MODIFY_TRIP)
         conv = _make_conversation_manager()
 
         with patch(
@@ -433,7 +402,7 @@ class TestHandleMessage:
         """修改时行程无 plan_data → 回退到生成新方案"""
         chunks = [FAKE_TRIP_JSON]
         agent = _make_agent(chunks)
-        agent.llm_classify_intent = AsyncMock(return_value="modify_trip")
+        agent.llm_classify_intent = AsyncMock(return_value=Intent.MODIFY_TRIP)
         conv = _make_conversation_manager()
 
         with patch(
@@ -454,7 +423,7 @@ class TestHandleMessage:
     async def test_modify_trip_not_found(self):
         """修改时找不到行程 → 静默结束"""
         agent = _make_agent([])
-        agent.llm_classify_intent = AsyncMock(return_value="modify_trip")
+        agent.llm_classify_intent = AsyncMock(return_value=Intent.MODIFY_TRIP)
         conv = _make_conversation_manager()
 
         with patch(

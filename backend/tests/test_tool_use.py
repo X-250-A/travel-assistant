@@ -9,24 +9,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from backend.app.services import llm_client as llm_client_module
 from backend.app.tools import weather as weather_module
 from backend.app.tools import weather_tool
+from backend.tests.conftest import _message, _tool_call
 
 
 async def test_tool_call():
     """验证 LLM 返回 tool_call 后能正确执行 get_weather 并回传结果"""
     # 第一次 chat() → 返回带 tool_call 的消息（LLM 决定查天气）
-    tool_call = MagicMock()
-    tool_call.function.name = "get_weather"
-    tool_call.function.arguments = json.dumps({"city": "北京"})
-    tool_call.id = "call_001"
-
-    tool_msg = MagicMock()
-    tool_msg.content = None
-    tool_msg.tool_calls = [tool_call]
+    tool_msg = _message(None, [_tool_call("get_weather", json.dumps({"city": "北京"}))])
 
     # 第二次 chat() → 拿到工具结果后返回最终回复
-    final_msg = MagicMock()
-    final_msg.content = "北京今天多云转晴，很适合出游。"
-    final_msg.tool_calls = None
+    final_msg = _message("北京今天多云转晴，很适合出游。", None)
 
     mock_llm = MagicMock()
     mock_llm.chat = AsyncMock(side_effect=[tool_msg, final_msg])

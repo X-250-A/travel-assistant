@@ -16,11 +16,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.app.agent import ConversationManager, ConversationState, TripPlannerAgent
+from backend.app.schemas.intent import Intent
 
 # ─── 辅助：mock Agent / ConversationManager / Redis ─────────────────────────
 
 
-def _make_agent(stream_chunks, classify_intent="new_trip"):
+def _make_agent(stream_chunks, classify_intent=Intent.NEW_TRIP):
     """返回 TripPlannerAgent，LLM 各层 + embedding_client 已 mock"""
     agent = TripPlannerAgent()
 
@@ -95,7 +96,7 @@ class TestRecall:
     async def test_recall_disabled_skips_embedding(self):
         """available()=False → 不调 embed、不调 recall，conversation.memories 保持空"""
         agent = _make_agent(['{"destination": "成都"}'])
-        agent.llm_classify_intent = AsyncMock(return_value="unclear")  # 不调 LLM，走引导语分支
+        agent.llm_classify_intent = AsyncMock(return_value=Intent.UNCLEAR)  # 不调 LLM，走引导语分支
         conv = _make_conversation_manager()
 
         with (

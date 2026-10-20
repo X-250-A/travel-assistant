@@ -7,76 +7,29 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.app.agent import ConversationManager, ConversationState, TripPlannerAgent
+from backend.app.schemas.intent import Intent
+from backend.tests.conftest import FAKE_TRIP_DICT
 
-# ─── 测试用的假行程 JSON（v1）─────────────────────────────────────────────
-FAKE_TRIP_JSON = json.dumps(
-    {
-        "destination": "成都",
-        "duration": 3,
-        "budget": 3000,
-        "style": ["美食", "人文"],
-        "overview": "三日成都美食之旅",
-        "days": [
-            {
-                "day": 1,
-                "date": None,
-                "theme": "市区初探",
-                "attractions": [
-                    {
-                        "name": "宽窄巷子",
-                        "type": "景点",
-                        "duration_minutes": 120,
-                        "cost_yuan": 0,
-                        "tips": "上午去人少",
-                        "transport_from_previous": "无",
-                    }
-                ],
-                "meals": [
-                    {
-                        "meal_type": "lunch",
-                        "suggestion": "奎星楼街吃串串，人均 50",
-                        "location_near": "宽窄巷子",
-                    }
-                ],
-            }
-        ],
-        "overall_tips": "带伞",
-    }
-)
+# ─── 测试用的假行程 JSON（真源 FAKE_TRIP_DICT 在 conftest；V2 为显式派生变体）──
+FAKE_TRIP_JSON = json.dumps(FAKE_TRIP_DICT)
 
-# v2：重生成后的版本（改了 budget，用于断言「重生成后落库 v2」）
+# v2：重生成后的版本（改了 budget/overview/meals，用于断言「重生成后落库 v2」）
 FAKE_TRIP_JSON_V2 = json.dumps(
     {
-        "destination": "成都",
-        "duration": 3,
+        **FAKE_TRIP_DICT,
         "budget": 2500,
-        "style": ["美食", "人文"],
         "overview": "三日成都美食之旅（预算优化版）",
         "days": [
             {
-                "day": 1,
-                "date": None,
-                "theme": "市区初探",
-                "attractions": [
-                    {
-                        "name": "宽窄巷子",
-                        "type": "景点",
-                        "duration_minutes": 120,
-                        "cost_yuan": 0,
-                        "tips": "上午去人少",
-                        "transport_from_previous": "无",
-                    }
-                ],
+                **FAKE_TRIP_DICT["days"][0],
                 "meals": [
                     {
-                        "meal_type": "lunch",
+                        **FAKE_TRIP_DICT["days"][0]["meals"][0],
                         "suggestion": "奎星楼街吃串串，人均 40",
-                        "location_near": "宽窄巷子",
                     }
                 ],
             }
         ],
-        "overall_tips": "带伞",
     }
 )
 
@@ -121,7 +74,7 @@ def critic_on():
 
 
 # ─── 辅助：构造带 mock LLM 的 Agent ───────────────────────────────────────
-def _make_agent(stream_chunks, critic_response=None, classify_intent="new_trip"):
+def _make_agent(stream_chunks, critic_response=None, classify_intent=Intent.NEW_TRIP):
     """返回一个 TripPlannerAgent，LLM 各层已 mock。
 
     - llm_classify_intent → 指定意图
@@ -145,7 +98,7 @@ def _make_agent(stream_chunks, critic_response=None, classify_intent="new_trip")
     return agent
 
 
-def _make_agent_with_v2(v1_chunks, v2_chunks, critic_response, classify_intent="new_trip"):
+def _make_agent_with_v2(v1_chunks, v2_chunks, critic_response, classify_intent=Intent.NEW_TRIP):
     """重生成场景：chat_stream 按 side_effect 依次返回 v1 流、v2 流"""
     agent = TripPlannerAgent()
 
@@ -520,7 +473,7 @@ class TestCriticModify:
                 + json.dumps({**json.loads(FAKE_TRIP_JSON), "duration": 4})
             ],
             critic_response=_mock_critic_response(passed=True),
-            classify_intent="modify_trip",
+            classify_intent=Intent.MODIFY_TRIP,
         )
         conv = _make_conversation_manager()
 

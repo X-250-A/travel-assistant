@@ -9,7 +9,7 @@
 import os
 import sys
 import tempfile
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 # bcrypt 5.0 与 passlib 不兼容：
 #   1) bcrypt 5.0 移除了 __about__，passlib 靠它检测版本
@@ -180,22 +180,99 @@ async def mock_redis():
         yield mock_r
 
 
+# 测试凭据单一真源（auth_headers 系列 fixture 与 test_auth 断言共用）
+TEST_USERNAME = "testuser"
+TEST_PASSWORD = "testpass123"
+TEST_USERNAME_ALT = "otheruser"
+TEST_PASSWORD_ALT = "otherpass456"
+
+# 假行程数据单一真源（test_planner/test_critic 共用；变体须显式派生，禁止整份重抄）
+FAKE_TRIP_DICT = {
+    "destination": "成都",
+    "duration": 3,
+    "budget": 3000,
+    "style": ["美食", "人文"],
+    "overview": "三日成都美食之旅",
+    "days": [
+        {
+            "day": 1,
+            "date": None,
+            "theme": "市区初探",
+            "attractions": [
+                {
+                    "name": "宽窄巷子",
+                    "type": "景点",
+                    "duration_minutes": 120,
+                    "cost_yuan": 0,
+                    "tips": "上午去人少",
+                    "transport_from_previous": "无",
+                }
+            ],
+            "meals": [
+                {
+                    "meal_type": "lunch",
+                    "suggestion": "奎星楼街吃串串，人均 50",
+                    "location_near": "宽窄巷子",
+                }
+            ],
+        }
+    ],
+    "overall_tips": "带伞",
+}
+
+
+async def _register(client: AsyncClient, username: str, password: str):
+    """注册并返回原始 response（不吞状态码，供断言 200/400/409 用）"""
+    return await client.post(
+        "/api/auth/register", json={"username": username, "password": password}
+    )
+
+
+async def _login(client: AsyncClient, username: str, password: str):
+    """登录并返回原始 response（不吞状态码，供断言 200/401 用）"""
+    return await client.post("/api/auth/login", json={"username": username, "password": password})
+
+
 async def _register_and_login(client: AsyncClient, username: str, password: str) -> str:
     """注册用户并登录，返回 'Bearer <token>' 字符串"""
-    await client.post("/api/auth/register", json={"username": username, "password": password})
-    resp = await client.post("/api/auth/login", json={"username": username, "password": password})
+    await _register(client, username, password)
+    resp = await _login(client, username, password)
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     data = resp.json()
     return f"Bearer {data['access_token']}"
 
 
+def _tool_call(name: str, arguments: str, call_id: str = "call_001") -> MagicMock:
+    """构造一个假 tool_call（function.name / function.arguments / id）"""
+    tool_call = MagicMock()
+    tool_call.function.name = name
+    tool_call.function.arguments = arguments
+    tool_call.id = call_id
+    return tool_call
+
+
+def _message(content, tool_calls) -> MagicMock:
+    """构造一个假 LLM 非流式响应（content / tool_calls）"""
+    message = MagicMock()
+    message.content = content
+    message.tool_calls = tool_calls
+    return message
+
+
+def _stream(chunks: list[str]) -> MagicMock:
+    """构造一个可 async for 的假 chat_stream（逐条产出 chunks）"""
+    stream = AsyncMock()
+    stream.__aiter__.return_value = chunks
+    return stream
+
+
 @pytest_asyncio.fixture
 async def auth_headers(async_client):
     """默认测试用户的认证 header"""
-    return await _register_and_login(async_client, "testuser", "testpass123")
+    return await _register_and_login(async_client, TEST_USERNAME, TEST_PASSWORD)
 
 
 @pytest_asyncio.fixture
 async def auth_headers_alt(async_client):
     """第二个测试用户的认证 header（用于权限隔离测试）"""
-    return await _register_and_login(async_client, "otheruser", "otherpass456")
+    return await _register_and_login(async_client, TEST_USERNAME_ALT, TEST_PASSWORD_ALT)

@@ -5,38 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from httpx import AsyncClient
 
+from backend.app.schemas.intent import Intent
+
 # ═══════════════════════════════════════════════════════════════════════════
 # 辅助工具
 # ═══════════════════════════════════════════════════════════════════════════
-
-FAKE_PLAN_JSON = json.dumps(
-    {
-        "destination": "成都",
-        "duration": 3,
-        "budget": 3000,
-        "style": ["美食"],
-        "overview": "三日成都之旅",
-        "days": [
-            {
-                "day": 1,
-                "date": None,
-                "theme": "市区初探",
-                "attractions": [
-                    {
-                        "name": "宽窄巷子",
-                        "type": "景点",
-                        "duration_minutes": 120,
-                        "cost_yuan": 0,
-                        "tips": "上午去人少",
-                        "transport_from_previous": "无",
-                    }
-                ],
-                "meals": [],
-            }
-        ],
-        "overall_tips": "带伞",
-    }
-)
 
 DEFAULT_CHUNKS = ['{"destination": "成都"', "}\n"]
 
@@ -54,7 +27,7 @@ async def _collect_sse_events(response) -> tuple[list[dict], str]:
     return events, "".join(full_text_parts)
 
 
-def _make_llm_mock(intent: str = "new_trip", chunks: list[str] | None = None):
+def _make_llm_mock(intent: str = Intent.NEW_TRIP, chunks: list[str] | None = None):
     """构造完整 mock LLMClient，覆盖所有代码路径。
 
     三层覆盖：
@@ -112,7 +85,7 @@ class TestChatEndpoint:
 
     async def test_chat_new_trip(self, async_client: AsyncClient, auth_headers: str):
         """不传 trip_id → 创建新行程 + SSE 返回"""
-        mock_llm = _make_llm_mock(intent="new_trip")
+        mock_llm = _make_llm_mock(intent=Intent.NEW_TRIP)
 
         with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm):
             resp = await async_client.post(
@@ -131,7 +104,7 @@ class TestChatEndpoint:
 
     async def test_chat_existing_trip(self, async_client: AsyncClient, auth_headers: str):
         """传 trip_id → 继续已有行程的对话"""
-        mock_llm = _make_llm_mock(intent="new_trip")
+        mock_llm = _make_llm_mock(intent=Intent.NEW_TRIP)
 
         with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm):
             resp1 = await async_client.post(
@@ -149,7 +122,7 @@ class TestChatEndpoint:
         trip_id = trips[0]["id"]
 
         # 第二次请求，继续已有行程（分类为修改）
-        mock_llm2 = _make_llm_mock(intent="modify_trip")
+        mock_llm2 = _make_llm_mock(intent=Intent.MODIFY_TRIP)
 
         with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm2):
             resp2 = await async_client.post(
@@ -194,7 +167,7 @@ class TestChatEndpoint:
         self, async_client: AsyncClient, auth_headers: str
     ):
         """Agent 内部抛异常 → SSE 流里出现 error 事件而不是 500"""
-        mock_llm = _make_llm_mock(intent="new_trip")
+        mock_llm = _make_llm_mock(intent=Intent.NEW_TRIP)
         mock_llm.chat_stream = MagicMock(side_effect=RuntimeError("LLM 调用失败"))
 
         with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm):
@@ -226,7 +199,7 @@ class TestChatCrossUser:
         self, async_client: AsyncClient, auth_headers: str, auth_headers_alt: str
     ):
         """用户 B 不能访问用户 A 的行程"""
-        mock_llm = _make_llm_mock(intent="new_trip")
+        mock_llm = _make_llm_mock(intent=Intent.NEW_TRIP)
 
         with patch("backend.app.agent.planner.LLMClient.get_instance", return_value=mock_llm):
             resp = await async_client.post(

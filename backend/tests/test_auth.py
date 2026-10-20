@@ -2,29 +2,22 @@
 
 from httpx import AsyncClient
 
+from backend.tests.conftest import TEST_USERNAME, TEST_USERNAME_ALT, _login, _register
+
 
 class TestRegister:
     """POST /api/auth/register"""
 
     async def test_register_success(self, async_client: AsyncClient):
-        resp = await async_client.post(
-            "/api/auth/register",
-            json={"username": "newuser", "password": "mypassword123"},
-        )
+        resp = await _register(async_client, "newuser", "mypassword123")
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data["username"] == "newuser"
         assert data["id"] > 0
 
     async def test_register_duplicate_username(self, async_client: AsyncClient):
-        await async_client.post(
-            "/api/auth/register",
-            json={"username": "dupuser", "password": "abc123"},
-        )
-        resp = await async_client.post(
-            "/api/auth/register",
-            json={"username": "dupuser", "password": "xyz456"},
-        )
+        await _register(async_client, "dupuser", "abc123")
+        resp = await _register(async_client, "dupuser", "xyz456")
         assert resp.status_code == 400
         assert resp.json()["detail"] == "用户名已存在"
 
@@ -33,36 +26,21 @@ class TestLogin:
     """POST /api/auth/login"""
 
     async def test_login_success(self, async_client: AsyncClient):
-        await async_client.post(
-            "/api/auth/register",
-            json={"username": "logintest", "password": "correctpass"},
-        )
-        resp = await async_client.post(
-            "/api/auth/login",
-            json={"username": "logintest", "password": "correctpass"},
-        )
+        await _register(async_client, "logintest", "correctpass")
+        resp = await _login(async_client, "logintest", "correctpass")
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert "access_token" in data
         assert data["token_type"] == "bearer"
 
     async def test_login_wrong_password(self, async_client: AsyncClient):
-        await async_client.post(
-            "/api/auth/register",
-            json={"username": "badpwuser", "password": "right"},
-        )
-        resp = await async_client.post(
-            "/api/auth/login",
-            json={"username": "badpwuser", "password": "wrong"},
-        )
+        await _register(async_client, "badpwuser", "right")
+        resp = await _login(async_client, "badpwuser", "wrong")
         assert resp.status_code == 401
         assert resp.json()["detail"] == "用户名或密码错误"
 
     async def test_login_nonexistent_user(self, async_client: AsyncClient):
-        resp = await async_client.post(
-            "/api/auth/login",
-            json={"username": "nobody", "password": "whatever"},
-        )
+        resp = await _login(async_client, "nobody", "whatever")
         assert resp.status_code == 401
 
 
@@ -73,7 +51,7 @@ class TestMe:
         resp = await async_client.get("/api/auth/me", headers={"Authorization": auth_headers})
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert data["username"] == "testuser"
+        assert data["username"] == TEST_USERNAME
         assert data["id"] > 0
 
     async def test_me_without_token(self, async_client: AsyncClient):
@@ -93,4 +71,4 @@ class TestMe:
         resp = await async_client.get("/api/auth/me", headers={"Authorization": auth_headers_alt})
         assert resp.status_code == 200, resp.text
         data = resp.json()
-        assert data["username"] == "otheruser"
+        assert data["username"] == TEST_USERNAME_ALT

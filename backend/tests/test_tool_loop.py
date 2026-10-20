@@ -7,32 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from backend.app.agent.tool_loop import run_tool_loop
+from backend.tests.conftest import _message, _stream, _tool_call
 
 EXECUTE_TOOL_PATCH = "backend.app.agent.tool_loop.execute_tool"
-
-
-def _tool_call(name: str, arguments: str, call_id: str = "call_001") -> MagicMock:
-    """构造一个假 tool_call（function.name / function.arguments / id）"""
-    tool_call = MagicMock()
-    tool_call.function.name = name
-    tool_call.function.arguments = arguments
-    tool_call.id = call_id
-    return tool_call
-
-
-def _message(content, tool_calls) -> MagicMock:
-    """构造一个假 LLM 非流式响应（content / tool_calls）"""
-    message = MagicMock()
-    message.content = content
-    message.tool_calls = tool_calls
-    return message
-
-
-def _stream(chunks: list[str]) -> MagicMock:
-    """构造一个可 async for 的假 chat_stream（逐条产出 chunks）"""
-    stream = AsyncMock()
-    stream.__aiter__.return_value = chunks
-    return stream
 
 
 @pytest.mark.asyncio
